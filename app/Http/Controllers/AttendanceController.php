@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Date;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -25,7 +26,7 @@ class AttendanceController extends Controller
             'date' => ['nullable', 'date'],
         ]);
 
-        $selectedDate = $filters['date'] ?? today()->toDateString();
+        $selectedDate = $filters['date'] ?? Date::now(config('app.timezone'))->toDateString();
         $attendanceEntries = $this->attendanceQuery($filters['search'] ?? null, $selectedDate)->get();
         $attendances = $this->buildAttendanceSummaries($attendanceEntries);
 
@@ -34,10 +35,11 @@ class AttendanceController extends Controller
                 'search' => $filters['search'] ?? '',
                 'date' => $selectedDate,
             ],
+            'officeHours' => Attendance::officeHoursLabel(),
             'summary' => [
                 'recordCount' => $attendances->count(),
                 'uniqueUsers' => $attendances->pluck('user_id')->unique()->count(),
-                'teamSize' => User::query()->count(),
+                'teamSize' => User::query()->visibleInSystem()->activeAgents()->count(),
             ],
             'canEditAttendanceTime' => $user->canEditAttendanceTime(),
             'attendances' => $attendances->values(),
@@ -47,6 +49,7 @@ class AttendanceController extends Controller
     public function update(Request $request, Attendance $attendance)
     {
         abort_unless($request->user()->canEditAttendanceTime(), 403);
+        abort_unless($attendance->user?->isVisibleInSystem(), 404);
 
         $validated = $request->validate([
             'recorded_date' => ['required', 'date'],
@@ -54,12 +57,95 @@ class AttendanceController extends Controller
         ]);
 
         $attendance->update([
-            'recorded_at' => Carbon::parse($validated['recorded_date'].' '.$validated['recorded_time']),
+            'recorded_at' => Carbon::parse(
+                $validated['recorded_date'].' '.$validated['recorded_time'],
+                config('app.timezone'),
+            ),
         ]);
 
         return redirect()
             ->route('attendances.index', $request->only('search', 'date'))
             ->with('success', 'Attendance time updated successfully.');
+    }
+
+    public function destroy(Request $request, Attendance $attendance)
+    {
+        abort_unless($request->user()->canEditAttendanceTime(), 403);
+        abort_unless($attendance->user?->isVisibleInSystem(), 404);
+
+        $entryTypeLabel = str($attendance->entry_type)->replace('_', ' ')->headline()->value();
+        $userName = $attendance->user?->name ?? 'this user';
+
+        $attendance->delete();
+
+        return redirect()
+            ->route('attendances.index', $request->only('search', 'date'))
+            ->with('success', $entryTypeLabel.' deleted for '.$userName.'.');
+    }
+
+    public function storeManualTimeOut(Request $request)
+    {
+        abort_unless($request->user()->canEditAttendanceTime(), 403);
+
+        $validated = $request->validate([
+            'user_id' => ['required', 'integer'],
+            'recorded_date' => ['required', 'date'],
+            'recorded_time' => ['required', 'date_format:H:i'],
+        ]);
+
+        $user = User::query()
+            ->visibleInSystem()
+            ->findOrFail($validated['user_id']);
+
+        $recordedAt = Carbon::parse(
+            $validated['recorded_date'].' '.$validated['recorded_time'],
+            config('app.timezone'),
+        );
+
+        $timeIn = Attendance::query()
+            ->visibleInSystem()
+            ->where('user_id', $user->id)
+            ->whereDate('recorded_at', $validated['recorded_date'])
+            ->where('entry_type', 'time_in')
+            ->orderBy('recorded_at')
+            ->first();
+
+        if (! $timeIn) {
+            return redirect()
+                ->route('attendances.index', $request->only('search', 'date'))
+                ->with('error', 'A Time In record is required before adding a Time Out.');
+        }
+
+        $existingTimeOut = Attendance::query()
+            ->visibleInSystem()
+            ->where('user_id', $user->id)
+            ->whereDate('recorded_at', $validated['recorded_date'])
+            ->where('entry_type', 'time_out')
+            ->exists();
+
+        if ($existingTimeOut) {
+            return redirect()
+                ->route('attendances.index', $request->only('search', 'date'))
+                ->with('error', 'A Time Out record already exists for this user on the selected date.');
+        }
+
+        if ($recordedAt->lessThanOrEqualTo($timeIn->recorded_at)) {
+            return redirect()
+                ->route('attendances.index', $request->only('search', 'date'))
+                ->with('error', 'Time Out must be later than the recorded Time In.');
+        }
+
+        Attendance::query()->create([
+            'user_id' => $user->id,
+            'recorded_at' => $recordedAt,
+            'entry_type' => 'time_out',
+            'scanned_code' => $user->qr_value ?? 'manual-time-out-'.$user->id,
+            'source' => 'manual_adjustment',
+        ]);
+
+        return redirect()
+            ->route('attendances.index', $request->only('search', 'date'))
+            ->with('success', 'Time Out added successfully.');
     }
 
     public function export(Request $request): StreamedResponse
@@ -71,7 +157,7 @@ class AttendanceController extends Controller
             'date' => ['nullable', 'date'],
         ]);
 
-        $selectedDate = $filters['date'] ?? today()->toDateString();
+        $selectedDate = $filters['date'] ?? Date::now(config('app.timezone'))->toDateString();
         $attendanceEntries = $this->attendanceQuery($filters['search'] ?? null, $selectedDate)->get();
         $attendances = $this->buildAttendanceSummaries($attendanceEntries);
         $xml = $this->buildExcelXml($attendances);
@@ -86,6 +172,7 @@ class AttendanceController extends Controller
     private function attendanceQuery(?string $search, ?string $date): Builder
     {
         return Attendance::query()
+            ->visibleInSystem()
             ->with('user')
             ->when($date, fn (Builder $query) => $query->whereDate('recorded_at', $date))
             ->when($search, function (Builder $query, string $search): void {
@@ -118,6 +205,7 @@ class AttendanceController extends Controller
                     ->filter(fn (Attendance $attendance): bool => $attendance->entry_type === 'time_out')
                     ->sortByDesc('recorded_at')
                     ->first();
+                $attendanceStatus = Attendance::lateStatusFor($timeIn?->recorded_at);
 
                 return [
                     'key' => optional($anchor->recorded_at)->toDateString().'-'.$anchor->user_id,
@@ -131,6 +219,10 @@ class AttendanceController extends Controller
                     'time_in_date' => optional($timeIn?->recorded_at)->toDateString(),
                     'time_in_time' => optional($timeIn?->recorded_at)->format('H:i'),
                     'time_in_display' => optional($timeIn?->recorded_at)->format('h:i A'),
+                    'attendance_status' => $attendanceStatus['attendance_status'],
+                    'status_label' => $attendanceStatus['status_label'],
+                    'status_hint' => $attendanceStatus['status_hint'],
+                    'late_minutes' => $attendanceStatus['late_minutes'],
                     'time_out_attendance_id' => $timeOut?->id,
                     'time_out_date' => optional($timeOut?->recorded_at)->toDateString(),
                     'time_out_time' => optional($timeOut?->recorded_at)->format('H:i'),
@@ -153,6 +245,7 @@ class AttendanceController extends Controller
                 $attendance['user_name'] ?? '',
                 $attendance['user_email'] ?? '',
                 $attendance['time_in_display'] ?? '',
+                $attendance['status_label'] ?? '',
                 $attendance['time_out_display'] ?? '',
             ];
 
@@ -178,6 +271,7 @@ class AttendanceController extends Controller
     <Cell><Data ss:Type="String">Name</Data></Cell>
     <Cell><Data ss:Type="String">Email</Data></Cell>
     <Cell><Data ss:Type="String">Time In</Data></Cell>
+    <Cell><Data ss:Type="String">Status</Data></Cell>
     <Cell><Data ss:Type="String">Time Out</Data></Cell>
    </Row>
    {$rows}

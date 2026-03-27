@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
-import { CalendarCheck2, Download, Search } from 'lucide-react';
+import { CalendarCheck2, Download, Search, Trash2 } from 'lucide-react';
 import { FlashMessage } from '@/components/flash-message';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -17,6 +18,7 @@ type Props = {
         search: string;
         date: string;
     };
+    officeHours: string;
     summary: {
         recordCount: number;
         uniqueUsers: number;
@@ -57,6 +59,7 @@ function toEditingValues(attendances: AttendanceSummaryItem[]): EditingValues {
 
 export default function AttendancesIndex({
     filters,
+    officeHours,
     summary,
     canEditAttendanceTime,
     attendances,
@@ -139,6 +142,49 @@ export default function AttendancesIndex({
         );
     };
 
+    const addManualTimeOut = (attendance: AttendanceSummaryItem) => {
+        const values = editingValues[attendance.key];
+
+        router.post(
+            '/attendances/manual-time-out',
+            {
+                user_id: attendance.user_id,
+                recorded_date: values.time_out_date,
+                recorded_time: values.time_out_time,
+                search,
+                date,
+            },
+            {
+                preserveScroll: true,
+            },
+        );
+    };
+
+    const deleteAttendance = (
+        attendanceId: number | null | undefined,
+        entryType: 'time_in' | 'time_out',
+    ) => {
+        if (!attendanceId) {
+            return;
+        }
+
+        const confirmed = window.confirm(
+            `Delete this ${entryType === 'time_in' ? 'Time In' : 'Time Out'} record?`,
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        router.delete(`/attendances/${attendanceId}`, {
+            data: {
+                search,
+                date,
+            },
+            preserveScroll: true,
+        });
+    };
+
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Attendance" />
@@ -156,8 +202,8 @@ export default function AttendancesIndex({
                                 </CardTitle>
                                 <CardDescription>
                                     One row per date per user with separate
-                                    Time In and Time Out values for easier
-                                    monitoring.
+                                    Time In and Time Out values plus a late
+                                    check based on office hours ({officeHours}).
                                 </CardDescription>
                             </div>
 
@@ -235,7 +281,7 @@ export default function AttendancesIndex({
                         <CardTitle>Daily attendance monitor</CardTitle>
                         <CardDescription>
                             {canEditAttendanceTime
-                                ? 'Super admin accounts can adjust existing Time In and Time Out records directly from the table.'
+                                ? 'Super admin accounts can adjust existing Time In and Time Out records and add a missing Time Out directly from the table.'
                                 : 'Admin accounts can review daily attendance in a clearer summarized view.'}
                         </CardDescription>
                     </CardHeader>
@@ -264,6 +310,9 @@ export default function AttendancesIndex({
                                             </th>
                                             <th className="px-4 py-3 font-semibold">
                                                 Time In
+                                            </th>
+                                            <th className="px-4 py-3 font-semibold">
+                                                Status
                                             </th>
                                             <th className="px-4 py-3 font-semibold">
                                                 Time Out
@@ -371,6 +420,20 @@ export default function AttendancesIndex({
                                                                     >
                                                                         Save
                                                                     </Button>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        onClick={() =>
+                                                                            deleteAttendance(
+                                                                                attendance.time_in_attendance_id,
+                                                                                'time_in',
+                                                                            )
+                                                                        }
+                                                                        className="border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                                                                    >
+                                                                        <Trash2 className="mr-2 h-4 w-4" />
+                                                                        Delete
+                                                                    </Button>
                                                                 </div>
                                                             </div>
                                                         ) : (
@@ -381,8 +444,32 @@ export default function AttendancesIndex({
                                                         )}
                                                     </td>
                                                     <td className="px-4 py-4">
-                                                        {canEditAttendanceTime &&
-                                                        attendance.time_out_attendance_id ? (
+                                                        <div className="space-y-2">
+                                                            <Badge
+                                                                variant="outline"
+                                                                className={
+                                                                    attendance.attendance_status ===
+                                                                    'late'
+                                                                        ? 'border-amber-200 bg-amber-50 text-amber-800'
+                                                                        : attendance.attendance_status ===
+                                                                            'on_time'
+                                                                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                                                          : 'border-slate-200 bg-slate-50 text-slate-600'
+                                                                }
+                                                            >
+                                                                {
+                                                                    attendance.status_label
+                                                                }
+                                                            </Badge>
+                                                            <p className="max-w-[180px] text-xs leading-5 text-slate-500">
+                                                                {
+                                                                    attendance.status_hint
+                                                                }
+                                                            </p>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-4">
+                                                        {canEditAttendanceTime ? (
                                                             <div className="space-y-2">
                                                                 <Input
                                                                     type="date"
@@ -445,19 +532,60 @@ export default function AttendancesIndex({
                                                                         }
                                                                         className="min-w-[120px]"
                                                                     />
-                                                                    <Button
-                                                                        type="button"
-                                                                        onClick={() =>
-                                                                            saveAttendanceTime(
-                                                                                attendance,
-                                                                                'time_out',
-                                                                            )
-                                                                        }
-                                                                        className="bg-cyan-600 text-white hover:bg-cyan-700"
-                                                                    >
-                                                                        Save
-                                                                    </Button>
+                                                                    {attendance.time_out_attendance_id ? (
+                                                                        <>
+                                                                            <Button
+                                                                                type="button"
+                                                                                onClick={() =>
+                                                                                    saveAttendanceTime(
+                                                                                        attendance,
+                                                                                        'time_out',
+                                                                                    )
+                                                                                }
+                                                                                className="bg-cyan-600 text-white hover:bg-cyan-700"
+                                                                            >
+                                                                                Save
+                                                                            </Button>
+                                                                            <Button
+                                                                                type="button"
+                                                                                variant="outline"
+                                                                                onClick={() =>
+                                                                                    deleteAttendance(
+                                                                                        attendance.time_out_attendance_id,
+                                                                                        'time_out',
+                                                                                    )
+                                                                                }
+                                                                                className="border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                                                                            >
+                                                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                                                Delete
+                                                                            </Button>
+                                                                        </>
+                                                                    ) : (
+                                                                        <Button
+                                                                            type="button"
+                                                                            onClick={() =>
+                                                                                addManualTimeOut(
+                                                                                    attendance,
+                                                                                )
+                                                                            }
+                                                                            disabled={
+                                                                                !values?.time_out_date ||
+                                                                                !values?.time_out_time
+                                                                            }
+                                                                            className="bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-emerald-300"
+                                                                        >
+                                                                            Add Time Out
+                                                                        </Button>
+                                                                    )}
                                                                 </div>
+                                                                {!attendance.time_out_attendance_id ? (
+                                                                    <p className="text-xs leading-5 text-slate-500">
+                                                                        Add a missing
+                                                                        Time Out for
+                                                                        this day.
+                                                                    </p>
+                                                                ) : null}
                                                             </div>
                                                         ) : (
                                                             <span className="font-medium text-slate-900">

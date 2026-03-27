@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
-import { Head, useForm, usePage } from '@inertiajs/react';
-import { BadgePlus, Search, UsersRound } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { BadgePlus, Search } from 'lucide-react';
 import { FlashMessage } from '@/components/flash-message';
 import InputError from '@/components/input-error';
 import { QrIdentityCard } from '@/components/qr-identity-card';
@@ -25,6 +25,7 @@ import type {
 type Props = {
     users: ManagedUser[];
     allowedRoles: RoleOption[];
+    statusOptions: RoleOption[];
 };
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -32,20 +33,32 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Users', href: '/users' },
 ];
 
-export default function UsersIndex({ users, allowedRoles }: Props) {
+export default function UsersIndex({
+    users,
+    allowedRoles,
+    statusOptions,
+}: Props) {
     const { flash } = usePage().props as { flash: Flash };
     const [search, setSearch] = useState('');
-    const canCreatePrivilegedAccounts = allowedRoles.some((role) =>
-        ['super_admin', 'admin'].includes(role.value),
+    const [statusSelections, setStatusSelections] = useState<Record<number, string>>(
+        () => Object.fromEntries(users.map((user) => [user.id, user.status])),
     );
+    const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
+    const canCreateAdminAccounts = allowedRoles.some((role) => role.value === 'admin');
     const form = useForm({
         name: '',
         email: '',
         role: allowedRoles[0]?.value ?? 'member',
-        employee_code: '',
         position: '',
+        status: statusOptions[0]?.value ?? 'active',
         password: '',
     });
+
+    useEffect(() => {
+        setStatusSelections(
+            Object.fromEntries(users.map((user) => [user.id, user.status])),
+        );
+    }, [users]);
 
     const filteredUsers = useMemo(() => {
         const query = search.toLowerCase().trim();
@@ -55,7 +68,13 @@ export default function UsersIndex({ users, allowedRoles }: Props) {
         }
 
         return users.filter((user) =>
-            [user.name, user.email, user.employee_code, user.position]
+            [
+                user.name,
+                user.email,
+                user.employee_code,
+                user.position,
+                user.status_label,
+            ]
                 .filter(Boolean)
                 .some((value) => value?.toLowerCase().includes(query)),
         );
@@ -68,12 +87,29 @@ export default function UsersIndex({ users, allowedRoles }: Props) {
                 form.reset(
                     'name',
                     'email',
-                    'employee_code',
                     'position',
+                    'status',
                     'password',
                 );
+                form.setData('role', allowedRoles[0]?.value ?? 'member');
+                form.setData('status', statusOptions[0]?.value ?? 'active');
             },
         });
+    }
+
+    function updateUserStatus(user: ManagedUser) {
+        setUpdatingUserId(user.id);
+
+        router.patch(
+            `/users/${user.id}/status`,
+            {
+                status: statusSelections[user.id] ?? user.status,
+            },
+            {
+                preserveScroll: true,
+                onFinish: () => setUpdatingUserId(null),
+            },
+        );
     }
 
     return (
@@ -94,9 +130,9 @@ export default function UsersIndex({ users, allowedRoles }: Props) {
                                     <div>
                                         <CardTitle>Add user</CardTitle>
                                         <CardDescription>
-                                            {canCreatePrivilegedAccounts
-                                                ? 'Create a new member, admin, or super admin account with a QR identity.'
-                                                : 'Create a new member account with a QR identity.'}
+                                            {canCreateAdminAccounts
+                                                ? 'Create a new member or admin account with a QR identity and agent status.'
+                                                : 'Create a new member account with a QR identity and agent status.'}
                                         </CardDescription>
                                     </div>
                                 </div>
@@ -115,6 +151,7 @@ export default function UsersIndex({ users, allowedRoles }: Props) {
 
                                 <div className="grid gap-2">
                                     <Input
+                                        type="email"
                                         value={form.data.email}
                                         onChange={(event) =>
                                             form.setData('email', event.target.value)
@@ -124,54 +161,58 @@ export default function UsersIndex({ users, allowedRoles }: Props) {
                                     <InputError message={form.errors.email} />
                                 </div>
 
-                                <div className="grid gap-2">
-                                    <select
-                                        value={form.data.role}
-                                        onChange={(event) =>
-                                            form.setData('role', event.target.value)
-                                        }
-                                        className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-10 rounded-md border bg-transparent px-3 text-sm outline-none focus-visible:ring-[3px]"
-                                    >
-                                        {allowedRoles.map((role) => (
-                                            <option key={role.value} value={role.value}>
-                                                {role.label}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <InputError message={form.errors.role} />
-                                </div>
-
                                 <div className="grid gap-2 md:grid-cols-2">
                                     <div className="grid gap-2">
-                                        <Input
-                                            value={form.data.employee_code}
+                                        <select
+                                            value={form.data.role}
                                             onChange={(event) =>
-                                                form.setData(
-                                                    'employee_code',
-                                                    event.target.value,
-                                                )
+                                                form.setData('role', event.target.value)
                                             }
-                                            placeholder="Employee code"
-                                        />
-                                        <InputError
-                                            message={form.errors.employee_code}
-                                        />
+                                            className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-10 rounded-md border bg-transparent px-3 text-sm outline-none focus-visible:ring-[3px]"
+                                        >
+                                            {allowedRoles.map((role) => (
+                                                <option key={role.value} value={role.value}>
+                                                    {role.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <InputError message={form.errors.role} />
                                     </div>
                                     <div className="grid gap-2">
-                                        <Input
-                                            value={form.data.position}
+                                        <select
+                                            value={form.data.status}
                                             onChange={(event) =>
-                                                form.setData(
-                                                    'position',
-                                                    event.target.value,
-                                                )
+                                                form.setData('status', event.target.value)
                                             }
-                                            placeholder="Position"
-                                        />
-                                        <InputError
-                                            message={form.errors.position}
-                                        />
+                                            className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-10 rounded-md border bg-transparent px-3 text-sm outline-none focus-visible:ring-[3px]"
+                                        >
+                                            {statusOptions.map((status) => (
+                                                <option key={status.value} value={status.value}>
+                                                    {status.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <InputError message={form.errors.status} />
                                     </div>
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Input
+                                        value={form.data.position}
+                                        onChange={(event) =>
+                                            form.setData(
+                                                'position',
+                                                event.target.value,
+                                            )
+                                        }
+                                        placeholder="Position"
+                                    />
+                                    <InputError message={form.errors.position} />
+                                </div>
+
+                                <div className="rounded-2xl border border-dashed border-cyan-200 bg-cyan-50/60 px-4 py-3 text-sm text-cyan-900">
+                                    Employee code will be generated automatically
+                                    when this user is saved.
                                 </div>
 
                                 <div className="grid gap-2">
@@ -207,7 +248,7 @@ export default function UsersIndex({ users, allowedRoles }: Props) {
                                         User directory
                                     </p>
                                     <h1 className="mt-2 text-3xl font-semibold text-slate-950">
-                                        Named QR cards, cleaner user management
+                                        Named QR cards and agent status controls
                                     </h1>
                                 </div>
 
@@ -218,13 +259,13 @@ export default function UsersIndex({ users, allowedRoles }: Props) {
                                         onChange={(event) =>
                                             setSearch(event.target.value)
                                         }
-                                        placeholder="Search name, email, code"
+                                        placeholder="Search name, email, code, or status"
                                         className="border-white/70 bg-white/90 pl-9"
                                     />
                                 </div>
                             </div>
 
-                            <div className="grid gap-4 sm:grid-cols-3">
+                            <div className="grid gap-4 sm:grid-cols-4">
                                 <Card className="border-white/80 bg-white/90">
                                     <CardHeader className="space-y-1">
                                         <CardDescription>Total users</CardDescription>
@@ -249,11 +290,23 @@ export default function UsersIndex({ users, allowedRoles }: Props) {
                                 </Card>
                                 <Card className="border-white/80 bg-white/90">
                                     <CardHeader className="space-y-1">
-                                        <CardDescription>Members</CardDescription>
+                                        <CardDescription>Active</CardDescription>
                                         <CardTitle className="text-3xl">
                                             {
                                                 users.filter(
-                                                    (user) => user.role === 'member',
+                                                    (user) => user.status === 'active',
+                                                ).length
+                                            }
+                                        </CardTitle>
+                                    </CardHeader>
+                                </Card>
+                                <Card className="border-white/80 bg-white/90">
+                                    <CardHeader className="space-y-1">
+                                        <CardDescription>Inactive</CardDescription>
+                                        <CardTitle className="text-3xl">
+                                            {
+                                                users.filter(
+                                                    (user) => user.status === 'inactive',
                                                 ).length
                                             }
                                         </CardTitle>
@@ -279,7 +332,19 @@ export default function UsersIndex({ users, allowedRoles }: Props) {
                                         {user.email}
                                     </p>
                                 </div>
-                                <Badge variant="outline">{user.role_label}</Badge>
+                                <div className="flex flex-wrap gap-2">
+                                    <Badge variant="outline">{user.role_label}</Badge>
+                                    <Badge
+                                        variant="outline"
+                                        className={
+                                            user.status === 'active'
+                                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                                : 'border-amber-200 bg-amber-50 text-amber-700'
+                                        }
+                                    >
+                                        {user.status_label}
+                                    </Badge>
+                                </div>
                             </div>
 
                             <div className="mb-5 grid gap-3 text-sm text-slate-600 md:grid-cols-2">
@@ -301,19 +366,64 @@ export default function UsersIndex({ users, allowedRoles }: Props) {
                                 </div>
                                 <div className="rounded-2xl bg-slate-50 px-4 py-3">
                                     <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                                        Status
+                                    </p>
+                                    <p className="mt-1 font-medium text-slate-900">
+                                        {user.status_label}
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                                    <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
                                         Attendance logs
                                     </p>
                                     <p className="mt-1 font-medium text-slate-900">
                                         {user.attendance_count}
                                     </p>
                                 </div>
-                                <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                                <div className="rounded-2xl bg-slate-50 px-4 py-3 md:col-span-2">
                                     <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
                                         Added
                                     </p>
                                     <p className="mt-1 font-medium text-slate-900">
                                         {user.created_at}
                                     </p>
+                                </div>
+                            </div>
+
+                            <div className="mb-5 rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
+                                <div className="flex flex-wrap items-end gap-3">
+                                    <div className="grid min-w-[180px] gap-2">
+                                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                                            Agent status
+                                        </p>
+                                        <select
+                                            value={statusSelections[user.id] ?? user.status}
+                                            onChange={(event) =>
+                                                setStatusSelections((current) => ({
+                                                    ...current,
+                                                    [user.id]: event.target.value,
+                                                }))
+                                            }
+                                            className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-10 rounded-md border bg-white px-3 text-sm outline-none focus-visible:ring-[3px]"
+                                        >
+                                            {statusOptions.map((status) => (
+                                                <option key={status.value} value={status.value}>
+                                                    {status.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        onClick={() => updateUserStatus(user)}
+                                        disabled={
+                                            updatingUserId === user.id ||
+                                            (statusSelections[user.id] ?? user.status) === user.status
+                                        }
+                                        variant="outline"
+                                    >
+                                        Save status
+                                    </Button>
                                 </div>
                             </div>
 

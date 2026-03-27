@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\UserRole;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -15,6 +16,10 @@ class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable, TwoFactorAuthenticatable;
+
+    public const STATUS_ACTIVE = 'active';
+
+    public const STATUS_INACTIVE = 'inactive';
 
     /**
      * The attributes that are mass assignable.
@@ -27,6 +32,7 @@ class User extends Authenticatable
         'role',
         'employee_code',
         'position',
+        'status',
         'qr_token',
         'password',
     ];
@@ -63,6 +69,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
+            'status' => 'string',
             'two_factor_confirmed_at' => 'datetime',
         ];
     }
@@ -71,7 +78,8 @@ class User extends Authenticatable
     {
         static::creating(function (self $user): void {
             $user->role ??= UserRole::Member;
-            $user->employee_code ??= 'ATT-'.Str::upper(Str::random(6));
+            $user->employee_code ??= self::generateEmployeeCode();
+            $user->status ??= self::STATUS_ACTIVE;
             $user->qr_token ??= (string) Str::uuid();
         });
     }
@@ -79,6 +87,16 @@ class User extends Authenticatable
     public function attendances(): HasMany
     {
         return $this->hasMany(Attendance::class);
+    }
+
+    public function scopeVisibleInSystem(Builder $query): void
+    {
+        $query->where('role', '!=', UserRole::SuperAdmin->value);
+    }
+
+    public function scopeActiveAgents(Builder $query): void
+    {
+        $query->where('status', self::STATUS_ACTIVE);
     }
 
     public function hasRole(UserRole|string $role): bool
@@ -99,6 +117,16 @@ class User extends Authenticatable
         return $this->hasRole(UserRole::SuperAdmin);
     }
 
+    public function isVisibleInSystem(): bool
+    {
+        return ! $this->isSuperAdmin();
+    }
+
+    public function isActive(): bool
+    {
+        return $this->status === self::STATUS_ACTIVE;
+    }
+
     public function canManageUsers(): bool
     {
         return $this->hasAnyRole([UserRole::SuperAdmin, UserRole::Admin]);
@@ -112,5 +140,40 @@ class User extends Authenticatable
     public function getQrValueAttribute(): ?string
     {
         return $this->qr_token ? 'attendance:'.$this->qr_token : null;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public static function availableStatuses(): array
+    {
+        return [
+            self::STATUS_ACTIVE,
+            self::STATUS_INACTIVE,
+        ];
+    }
+
+    public function statusLabel(): string
+    {
+        return str($this->status ?: self::STATUS_ACTIVE)->headline()->value();
+    }
+
+    public static function generateEmployeeCode(): string
+    {
+        $latestNumericCode = static::query()
+            ->where('employee_code', 'like', 'DUS-%')
+            ->pluck('employee_code')
+            ->filter(fn (?string $code): bool => is_string($code) && preg_match('/^DUS-(\d+)$/', $code) === 1)
+            ->map(fn (string $code): int => (int) Str::after($code, 'DUS-'))
+            ->max() ?? 0;
+
+        $nextNumber = $latestNumericCode + 1;
+
+        do {
+            $candidate = 'DUS-'.str_pad((string) $nextNumber, 3, '0', STR_PAD_LEFT);
+            $nextNumber++;
+        } while (static::query()->where('employee_code', $candidate)->exists());
+
+        return $candidate;
     }
 }

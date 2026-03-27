@@ -19,17 +19,19 @@ class DatabaseSeeder extends Seeder
         $accounts = [
             [
                 'name' => 'System Super Admin',
-                'email' => 'superadmin@teamph.local',
+                'email' => 'superadmin@duscaff.local',
                 'role' => UserRole::SuperAdmin,
                 'position' => 'Super Administrator',
                 'employee_code' => 'DUS-SUPER',
+                'status' => User::STATUS_ACTIVE,
             ],
             [
                 'name' => 'Attendance Admin',
-                'email' => 'admin@teamph.local',
+                'email' => 'admin@duscaff.local',
                 'role' => UserRole::Admin,
                 'position' => 'Attendance Administrator',
                 'employee_code' => 'DUS-ADMIN',
+                'status' => User::STATUS_ACTIVE,
             ],
             ...collect([
                 'Elmar B. Noche',
@@ -51,26 +53,23 @@ class DatabaseSeeder extends Seeder
                     'name' => $name,
                     'email' => $email,
                     'role' => UserRole::Member,
-                    'position' => $name === 'Elmar B. Noche'
-                        ? 'Team Manager'
-                        : 'Team Member',
+                    'position' => 'Team Member',
                     'employee_code' => 'DUS-'.str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT),
+                    'status' => User::STATUS_ACTIVE,
                 ];
             })->all(),
         ];
 
         foreach ($accounts as $account) {
-            $existingUser = User::query()
-                ->where('employee_code', $account['employee_code'])
-                ->first();
-
             User::query()->updateOrCreate(
-                ['employee_code' => $account['employee_code']],
+                ['email' => $account['email']],
                 [
                     ...$account,
                     'email_verified_at' => now(),
                     'password' => Hash::make('attendance123'),
-                    'qr_token' => $existingUser?->qr_token ?: (string) Str::uuid(),
+                    'qr_token' => User::query()
+                        ->where('email', $account['email'])
+                        ->value('qr_token') ?: (string) Str::uuid(),
                 ],
             );
         }

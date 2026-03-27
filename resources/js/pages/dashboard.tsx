@@ -314,6 +314,24 @@ export default function Dashboard({
                                                 {attendance.entry_type_label ??
                                                     'Attendance'}
                                             </p>
+                                            {attendance.status_label && (
+                                                <Badge
+                                                    variant="outline"
+                                                    className={
+                                                        attendance.attendance_status ===
+                                                        'late'
+                                                            ? 'mt-2 border-amber-200 bg-amber-50 text-amber-800'
+                                                            : 'mt-2 border-emerald-200 bg-emerald-50 text-emerald-800'
+                                                    }
+                                                >
+                                                    {attendance.status_label}
+                                                </Badge>
+                                            )}
+                                            {attendance.status_hint && (
+                                                <p className="mt-2 text-xs text-slate-500">
+                                                    {attendance.status_hint}
+                                                </p>
+                                            )}
                                         </div>
                                         <div className="text-right text-sm text-slate-500">
                                             <p>{attendance.recorded_date}</p>

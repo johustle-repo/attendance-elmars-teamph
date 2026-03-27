@@ -17,23 +17,40 @@ class AttendanceScanController extends Controller
     public function create(): Response
     {
         $latestAttendances = Attendance::query()
+            ->visibleInSystem()
             ->with('user')
             ->latest('recorded_at')
             ->take(8)
             ->get();
 
         return Inertia::render('attendance/scan', [
-            'latestAttendances' => $latestAttendances->map(fn (Attendance $attendance) => [
-                'id' => $attendance->id,
-                'user_name' => $attendance->user?->name,
-                'employee_code' => $attendance->user?->employee_code,
-                'entry_type' => $attendance->entry_type,
-                'entry_type_label' => Str::headline(str_replace('_', ' ', $attendance->entry_type)),
-                'recorded_at' => optional($attendance->recorded_at)->toIso8601String(),
-                'recorded_date' => optional($attendance->recorded_at)->format('M d, Y'),
-                'recorded_time' => optional($attendance->recorded_at)->format('h:i A'),
-            ]),
-            'teamCount' => User::query()->count(),
+            'latestAttendances' => $latestAttendances->map(function (Attendance $attendance): array {
+                $lateStatus = $attendance->entry_type === 'time_in'
+                    ? Attendance::lateStatusFor($attendance->recorded_at)
+                    : [
+                        'attendance_status' => null,
+                        'status_label' => null,
+                        'status_hint' => null,
+                        'late_minutes' => null,
+                    ];
+
+                return [
+                    'id' => $attendance->id,
+                    'user_name' => $attendance->user?->name,
+                    'employee_code' => $attendance->user?->employee_code,
+                    'entry_type' => $attendance->entry_type,
+                    'entry_type_label' => Str::headline(str_replace('_', ' ', $attendance->entry_type)),
+                    'attendance_status' => $lateStatus['attendance_status'],
+                    'status_label' => $lateStatus['status_label'],
+                    'status_hint' => $lateStatus['status_hint'],
+                    'late_minutes' => $lateStatus['late_minutes'],
+                    'recorded_at' => optional($attendance->recorded_at)->toIso8601String(),
+                    'recorded_date' => optional($attendance->recorded_at)->format('M d, Y'),
+                    'recorded_time' => optional($attendance->recorded_at)->format('h:i A'),
+                ];
+            }),
+            'teamCount' => User::query()->visibleInSystem()->activeAgents()->count(),
+            'officeHours' => Attendance::officeHoursLabel(),
         ]);
     }
 
@@ -45,15 +62,20 @@ class AttendanceScanController extends Controller
         ]);
 
         $token = $this->extractToken($validated['qr_code']);
-        $user = User::query()->where('qr_token', $token)->first();
+        $user = User::query()->visibleInSystem()->where('qr_token', $token)->first();
 
         if (! $user) {
             return back()->with('error', 'QR code not recognized. Please use a valid member QR code.');
         }
 
+        if (! $user->isActive()) {
+            return back()->with('error', $user->name.' is marked as inactive and cannot record attendance.');
+        }
+
         $entryType = $validated['entry_type'];
         $recordedAt = Date::now(config('app.timezone'));
         $attendanceDate = $recordedAt->toDateString();
+        $duplicateCutoff = $recordedAt->subMinutes(2);
         $latestAttendanceToday = Attendance::query()
             ->where('user_id', $user->id)
             ->whereDate('recorded_at', $attendanceDate)
@@ -63,7 +85,7 @@ class AttendanceScanController extends Controller
         $duplicateScan = Attendance::query()
             ->where('user_id', $user->id)
             ->where('entry_type', $entryType)
-            ->where('recorded_at', '>=', $recordedAt->subMinutes(2))
+            ->where('recorded_at', '>=', $duplicateCutoff)
             ->exists();
 
         if ($duplicateScan) {

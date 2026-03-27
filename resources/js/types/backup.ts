@@ -27,6 +27,8 @@ export type BackupUser = {
     role_label?: string | null;
     employee_code?: string | null;
     position?: string | null;
+    status?: string | null;
+    status_label?: string | null;
     qr_value?: string | null;
     created_at?: string | null;
     attendance_day_count: number;

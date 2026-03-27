@@ -23,6 +23,50 @@ test('admin can open the user management page', function () {
         ->assertInertia(fn (AssertableInertia $page) => $page->component('users/index'));
 });
 
+test('super admin accounts are hidden from the user management page', function () {
+    $superAdmin = User::factory()->create([
+        'role' => UserRole::SuperAdmin,
+        'email_verified_at' => now(),
+        'name' => 'Hidden Super Admin',
+        'email' => 'hidden-super-admin@example.com',
+    ]);
+
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+        'email_verified_at' => now(),
+        'name' => 'Visible Admin',
+        'email' => 'visible-admin@example.com',
+    ]);
+
+    $member = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'name' => 'Visible Member',
+        'email' => 'visible-member@example.com',
+    ]);
+
+    $this->actingAs($admin)
+        ->get('/users')
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page) use ($admin, $member, $superAdmin): void {
+            $page
+                ->where('users', function ($users) use ($admin, $member, $superAdmin): bool {
+                    $emails = collect($users)->pluck('email');
+
+                    return $emails->contains($admin->email)
+                        && $emails->contains($member->email)
+                        && ! $emails->contains($superAdmin->email);
+                })
+                ->where('users.0.status', fn ($status): bool => in_array($status, ['active', 'inactive'], true))
+                ->where('allowedRoles', function ($roles): bool {
+                    return ! collect($roles)->pluck('value')->contains('super_admin');
+                })
+                ->where('statusOptions', function ($statuses): bool {
+                    return collect($statuses)->pluck('value')->sort()->values()->all() === ['active', 'inactive'];
+                });
+        });
+});
+
 test('admin can open the backup page', function () {
     $admin = User::factory()->create([
         'role' => UserRole::Admin,
@@ -62,6 +106,75 @@ test('valid qr code creates an attendance record', function () {
         'entry_type' => 'time_in',
         'source' => 'qr_scan',
     ]);
+});
+
+test('scanner stores the real current scan timestamp', function () {
+    $member = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+    ]);
+
+    $scanMoment = now()->setTime(8, 15, 0);
+    $this->travelTo($scanMoment);
+
+    $this->post('/scan', [
+        'qr_code' => $member->qr_value,
+        'entry_type' => 'time_in',
+    ])->assertRedirect('/scan');
+
+    $attendance = Attendance::query()
+        ->where('user_id', $member->id)
+        ->latest('recorded_at')
+        ->first();
+
+    expect($attendance)->not->toBeNull();
+    expect($attendance?->recorded_at?->toDateTimeString())->toBe($scanMoment->toDateTimeString());
+});
+
+test('scanner hides and rejects super admin attendance data', function () {
+    $superAdmin = User::factory()->create([
+        'role' => UserRole::SuperAdmin,
+        'email_verified_at' => now(),
+        'name' => 'Hidden Super Admin',
+    ]);
+
+    $member = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'name' => 'Visible Member',
+    ]);
+
+    Attendance::query()->create([
+        'user_id' => $superAdmin->id,
+        'recorded_at' => now()->subMinute(),
+        'entry_type' => 'time_in',
+        'scanned_code' => $superAdmin->qr_value,
+        'source' => 'qr_scan',
+    ]);
+
+    Attendance::query()->create([
+        'user_id' => $member->id,
+        'recorded_at' => now(),
+        'entry_type' => 'time_in',
+        'scanned_code' => $member->qr_value,
+        'source' => 'qr_scan',
+    ]);
+
+    $this->get('/scan')
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page) use ($member): void {
+            $page
+                ->where('teamCount', 1)
+                ->has('latestAttendances', 1)
+                ->where('latestAttendances.0.user_name', $member->name);
+        });
+
+    $this->post('/scan', [
+        'qr_code' => $superAdmin->qr_value,
+        'entry_type' => 'time_in',
+    ])
+        ->assertRedirect()
+        ->assertSessionHas('error');
 });
 
 test('time out requires a prior time in', function () {
@@ -134,6 +247,73 @@ test('admin cannot create another admin account', function () {
     ]);
 });
 
+test('admin can add an inactive member account', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+        'email_verified_at' => now(),
+    ]);
+
+    $this->actingAs($admin)
+        ->post('/users', [
+            'name' => 'Inactive Member',
+            'email' => 'inactive-member@example.com',
+            'role' => UserRole::Member->value,
+            'position' => 'Support Agent',
+            'status' => User::STATUS_INACTIVE,
+            'password' => 'attendance123',
+        ])
+        ->assertRedirect('/users');
+
+    $this->assertDatabaseHas('users', [
+        'email' => 'inactive-member@example.com',
+        'status' => User::STATUS_INACTIVE,
+    ]);
+
+    expect(
+        User::query()->where('email', 'inactive-member@example.com')->value('employee_code'),
+    )->toStartWith('DUS-');
+});
+
+test('admin can update a member status to inactive', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+        'email_verified_at' => now(),
+    ]);
+
+    $member = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'status' => User::STATUS_ACTIVE,
+    ]);
+
+    $this->actingAs($admin)
+        ->patch('/users/'.$member->id.'/status', [
+            'status' => User::STATUS_INACTIVE,
+        ])
+        ->assertRedirect('/users');
+
+    expect($member->fresh()->status)->toBe(User::STATUS_INACTIVE);
+});
+
+test('inactive users cannot record attendance', function () {
+    $member = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'status' => User::STATUS_INACTIVE,
+    ]);
+
+    $this->post('/scan', [
+        'qr_code' => $member->qr_value,
+        'entry_type' => 'time_in',
+    ])
+        ->assertRedirect()
+        ->assertSessionHas('error');
+
+    $this->assertDatabaseMissing('attendances', [
+        'user_id' => $member->id,
+    ]);
+});
+
 test('super admin can update attendance timestamps', function () {
     $superAdmin = User::factory()->create([
         'role' => UserRole::SuperAdmin,
@@ -161,6 +341,177 @@ test('super admin can update attendance timestamps', function () {
         ->assertRedirect('/attendances');
 
     expect($attendance->fresh()->recorded_at?->format('H:i'))->toBe('08:30');
+});
+
+test('super admin can delete attendance records', function () {
+    $superAdmin = User::factory()->create([
+        'role' => UserRole::SuperAdmin,
+        'email_verified_at' => now(),
+    ]);
+
+    $member = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+    ]);
+
+    $attendance = Attendance::query()->create([
+        'user_id' => $member->id,
+        'recorded_at' => now()->subHour(),
+        'entry_type' => 'time_in',
+        'scanned_code' => $member->qr_value,
+        'source' => 'qr_scan',
+    ]);
+
+    $this->actingAs($superAdmin)
+        ->delete('/attendances/'.$attendance->id, [
+            'date' => now()->toDateString(),
+        ])
+        ->assertRedirect('/attendances?date='.now()->toDateString());
+
+    $this->assertDatabaseMissing('attendances', [
+        'id' => $attendance->id,
+    ]);
+});
+
+test('super admin can add a missing time out from attendance management', function () {
+    $superAdmin = User::factory()->create([
+        'role' => UserRole::SuperAdmin,
+        'email_verified_at' => now(),
+    ]);
+
+    $member = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+    ]);
+
+    Attendance::query()->create([
+        'user_id' => $member->id,
+        'recorded_at' => now()->setTime(8, 0),
+        'entry_type' => 'time_in',
+        'scanned_code' => $member->qr_value,
+        'source' => 'qr_scan',
+    ]);
+
+    $this->actingAs($superAdmin)
+        ->post('/attendances/manual-time-out', [
+            'user_id' => $member->id,
+            'recorded_date' => now()->toDateString(),
+            'recorded_time' => '17:05',
+            'date' => now()->toDateString(),
+        ])
+        ->assertRedirect('/attendances?date='.now()->toDateString());
+
+    $this->assertDatabaseHas('attendances', [
+        'user_id' => $member->id,
+        'entry_type' => 'time_out',
+        'source' => 'manual_adjustment',
+    ]);
+});
+
+test('attendance page hides super admin attendance data', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+        'email_verified_at' => now(),
+    ]);
+
+    $superAdmin = User::factory()->create([
+        'role' => UserRole::SuperAdmin,
+        'email_verified_at' => now(),
+        'name' => 'Hidden Super Admin',
+    ]);
+
+    $member = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'name' => 'Visible Member',
+        'employee_code' => 'ATT-VISIBLE',
+    ]);
+
+    Attendance::query()->create([
+        'user_id' => $superAdmin->id,
+        'recorded_at' => now(),
+        'entry_type' => 'time_in',
+        'scanned_code' => $superAdmin->qr_value,
+        'source' => 'qr_scan',
+    ]);
+
+    Attendance::query()->create([
+        'user_id' => $member->id,
+        'recorded_at' => now(),
+        'entry_type' => 'time_in',
+        'scanned_code' => $member->qr_value,
+        'source' => 'qr_scan',
+    ]);
+
+    $this->actingAs($admin)
+        ->get('/attendances?date='.now()->toDateString())
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page) use ($member, $admin): void {
+            $page
+                ->where('summary.recordCount', 1)
+                ->where('summary.uniqueUsers', 1)
+                ->where('summary.teamSize', 2)
+                ->has('attendances', 1)
+                ->where('attendances.0.user_name', $member->name)
+                ->where('attendances.0.employee_code', $member->employee_code)
+                ->where('canEditAttendanceTime', false);
+        });
+});
+
+test('attendance page team size counts active users only', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+        'email_verified_at' => now(),
+    ]);
+
+    User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'status' => User::STATUS_ACTIVE,
+    ]);
+
+    User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'status' => User::STATUS_INACTIVE,
+    ]);
+
+    $this->actingAs($admin)
+        ->get('/attendances?date='.now()->toDateString())
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('summary.teamSize', 2));
+});
+
+test('attendance page marks late time in records based on 8am office start', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+        'email_verified_at' => now(),
+    ]);
+
+    $member = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'name' => 'Late Member',
+    ]);
+
+    Attendance::query()->create([
+        'user_id' => $member->id,
+        'recorded_at' => now()->setTime(8, 15),
+        'entry_type' => 'time_in',
+        'scanned_code' => $member->qr_value,
+        'source' => 'qr_scan',
+    ]);
+
+    $this->actingAs($admin)
+        ->get('/attendances?date='.now()->toDateString())
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page): void {
+            $page
+                ->where('officeHours', '8:00 AM - 5:00 PM')
+                ->where('attendances.0.status_label', 'Late')
+                ->where('attendances.0.attendance_status', 'late')
+                ->where('attendances.0.late_minutes', 15);
+        });
 });
 
 test('backup export includes users and attendance data for selected month', function () {

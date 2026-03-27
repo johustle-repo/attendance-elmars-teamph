@@ -80,6 +80,7 @@ export default function BackupsIndex({
                 user.employee_code,
                 user.position,
                 user.role_label,
+                user.status_label,
             ]
                 .filter(Boolean)
                 .some((value) => value?.toLowerCase().includes(query)),
@@ -310,6 +311,16 @@ export default function BackupsIndex({
                                         </Badge>
                                         <Badge
                                             variant="outline"
+                                            className={
+                                                user.status === 'inactive'
+                                                    ? 'border-amber-200 bg-amber-50 text-amber-700'
+                                                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                            }
+                                        >
+                                            {user.status_label ?? user.status ?? 'Active'}
+                                        </Badge>
+                                        <Badge
+                                            variant="outline"
                                             className="border-cyan-200 bg-cyan-50 text-cyan-800"
                                         >
                                             {user.attendance_day_count} day
@@ -322,7 +333,7 @@ export default function BackupsIndex({
                             </CardHeader>
 
                             <CardContent className="space-y-5 p-6">
-                                <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-4">
+                                <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-5">
                                     <div className="rounded-2xl bg-slate-50 px-4 py-3">
                                         <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
                                             Employee code
@@ -341,13 +352,21 @@ export default function BackupsIndex({
                                     </div>
                                     <div className="rounded-2xl bg-slate-50 px-4 py-3">
                                         <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                                            Status
+                                        </p>
+                                        <p className="mt-1 font-medium text-slate-900">
+                                            {user.status_label ?? user.status ?? 'Active'}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                                        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
                                             Logs in period
                                         </p>
                                         <p className="mt-1 font-medium text-slate-900">
                                             {user.attendance_log_count}
                                         </p>
                                     </div>
-                                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                                    <div className="rounded-2xl bg-slate-50 px-4 py-3 md:col-span-2">
                                         <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
                                             Added
                                         </p>

@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\UserRole;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -31,6 +32,7 @@ class UserFactory extends Factory
             'role' => UserRole::Member,
             'employee_code' => 'ATT-'.Str::upper(Str::random(6)),
             'position' => fake()->randomElement(['Member', 'Coordinator', 'Officer']),
+            'status' => User::STATUS_ACTIVE,
             'qr_token' => (string) Str::uuid(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),

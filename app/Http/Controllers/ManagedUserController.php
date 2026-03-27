@@ -21,8 +21,9 @@ class ManagedUserController extends Controller
         abort_unless($user->canManageUsers(), 403);
 
         $managedUsers = User::query()
+            ->visibleInSystem()
             ->withCount('attendances')
-            ->orderByRaw("case when role = 'super_admin' then 0 when role = 'admin' then 1 else 2 end")
+            ->orderByRaw("case when role = 'admin' then 0 else 1 end")
             ->orderBy('name')
             ->get();
 
@@ -35,6 +36,8 @@ class ManagedUserController extends Controller
                 'role_label' => $managedUser->role?->label(),
                 'employee_code' => $managedUser->employee_code,
                 'position' => $managedUser->position,
+                'status' => $managedUser->status,
+                'status_label' => $managedUser->statusLabel(),
                 'qr_value' => $managedUser->qr_value,
                 'attendance_count' => $managedUser->attendances_count,
                 'created_at' => optional($managedUser->created_at)->format('M d, Y'),
@@ -43,6 +46,12 @@ class ManagedUserController extends Controller
                 ->map(fn (UserRole $role) => [
                     'value' => $role->value,
                     'label' => $role->label(),
+                ])
+                ->values(),
+            'statusOptions' => collect(User::availableStatuses())
+                ->map(fn (string $status) => [
+                    'value' => $status,
+                    'label' => str($status)->headline()->value(),
                 ])
                 ->values(),
         ]);
@@ -63,17 +72,19 @@ class ManagedUserController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'role' => ['required', Rule::in($allowedRoles)],
-            'employee_code' => ['nullable', 'string', 'max:50', 'unique:users,employee_code'],
             'position' => ['nullable', 'string', 'max:255'],
+            'status' => ['required', Rule::in(User::availableStatuses())],
             'password' => ['required', 'string', 'min:8'],
         ]);
 
         User::query()->create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
+            'name' => trim($validated['name']),
+            'email' => Str::lower(trim($validated['email'])),
             'role' => $validated['role'],
-            'employee_code' => $validated['employee_code'] ?: 'ATT-'.Str::upper(Str::random(6)),
-            'position' => $validated['position'] ?: 'Team Member',
+            'position' => filled($validated['position'] ?? null)
+                ? trim((string) $validated['position'])
+                : 'Team Member',
+            'status' => $validated['status'],
             'qr_token' => (string) Str::uuid(),
             'email_verified_at' => now(),
             'password' => Hash::make($validated['password']),
@@ -84,13 +95,37 @@ class ManagedUserController extends Controller
             ->with('success', 'User added successfully.');
     }
 
+    public function updateStatus(Request $request, User $user): RedirectResponse
+    {
+        abort_unless($request->user()->canManageUsers(), 403);
+        abort_unless($user->isVisibleInSystem(), 404);
+
+        $validated = $request->validate([
+            'status' => ['required', Rule::in(User::availableStatuses())],
+        ]);
+
+        if ($request->user()->is($user) && $validated['status'] === User::STATUS_INACTIVE) {
+            return redirect()
+                ->route('users.index')
+                ->with('error', 'You cannot mark your own account as inactive.');
+        }
+
+        $user->update([
+            'status' => $validated['status'],
+        ]);
+
+        return redirect()
+            ->route('users.index')
+            ->with('success', $user->name.' is now marked as '.$user->statusLabel().'.');
+    }
+
     /**
      * @return array<int, UserRole>
      */
     private function allowedRolesFor(User $user): array
     {
         return $user->isSuperAdmin()
-            ? [UserRole::SuperAdmin, UserRole::Admin, UserRole::Member]
+            ? [UserRole::Admin, UserRole::Member]
             : [UserRole::Member];
     }
 }

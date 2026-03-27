@@ -21,6 +21,10 @@ export type AttendanceItem = {
     employee_code?: string;
     entry_type?: string;
     entry_type_label?: string;
+    attendance_status?: 'late' | 'on_time' | 'no_time_in' | null;
+    status_label?: string | null;
+    status_hint?: string | null;
+    late_minutes?: number | null;
     recorded_at: string;
     recorded_date: string;
     recorded_time: string;
@@ -41,6 +45,10 @@ export type AttendanceSummaryItem = {
     time_in_date?: string | null;
     time_in_time?: string | null;
     time_in_display?: string | null;
+    attendance_status: 'late' | 'on_time' | 'no_time_in';
+    status_label: string;
+    status_hint: string;
+    late_minutes?: number | null;
     time_out_attendance_id?: number | null;
     time_out_date?: string | null;
     time_out_time?: string | null;
@@ -55,6 +63,8 @@ export type ManagedUser = {
     role_label: string;
     employee_code?: string;
     position?: string;
+    status: 'active' | 'inactive';
+    status_label: string;
     qr_value?: string | null;
     attendance_count: number;
     created_at: string;

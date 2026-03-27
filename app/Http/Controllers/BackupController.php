@@ -151,12 +151,13 @@ class BackupController extends Controller
         $endOfMonth = $startOfMonth->endOfMonth();
 
         $users = User::query()
+            ->visibleInSystem()
             ->with([
                 'attendances' => fn ($query) => $query
                     ->whereBetween('recorded_at', [$startOfMonth, $endOfMonth])
                     ->orderBy('recorded_at'),
             ])
-            ->orderByRaw("case when role = 'super_admin' then 0 when role = 'admin' then 1 else 2 end")
+            ->orderByRaw("case when role = 'admin' then 0 else 1 end")
             ->orderBy('name')
             ->get();
 
@@ -190,6 +191,8 @@ class BackupController extends Controller
             'role_label' => $user->role?->label(),
             'employee_code' => $user->employee_code,
             'position' => $user->position,
+            'status' => $user->status,
+            'status_label' => $user->statusLabel(),
             'qr_value' => $user->qr_value,
             'created_at' => optional($user->created_at)->toIso8601String(),
             'attendance_day_count' => count($attendanceDays),
@@ -245,8 +248,8 @@ class BackupController extends Controller
     private function availableYears(): array
     {
         $currentYear = Date::now(config('app.timezone'))->year;
-        $oldestAttendance = Attendance::query()->oldest('recorded_at')->value('recorded_at');
-        $oldestUser = User::query()->oldest('created_at')->value('created_at');
+        $oldestAttendance = Attendance::query()->visibleInSystem()->oldest('recorded_at')->value('recorded_at');
+        $oldestUser = User::query()->visibleInSystem()->oldest('created_at')->value('created_at');
 
         $startYear = collect([$oldestAttendance, $oldestUser])
             ->filter()
@@ -287,6 +290,7 @@ class BackupController extends Controller
                         'role' => $user['role_label'] ?? $user['role'],
                         'employee_code' => $user['employee_code'] ?? '',
                         'position' => $user['position'] ?? '',
+                        'status' => $user['status_label'] ?? $user['status'] ?? '',
                         'date' => '',
                         'time_in' => '',
                         'time_out' => '',
@@ -301,6 +305,7 @@ class BackupController extends Controller
                         'role' => $user['role_label'] ?? $user['role'],
                         'employee_code' => $user['employee_code'] ?? '',
                         'position' => $user['position'] ?? '',
+                        'status' => $user['status_label'] ?? $user['status'] ?? '',
                         'date' => $day['display_date'] ?? '',
                         'time_in' => $day['time_in'] ?? '',
                         'time_out' => $day['time_out'] ?? '',
@@ -321,6 +326,7 @@ class BackupController extends Controller
                     $row['role'],
                     $row['employee_code'],
                     $row['position'],
+                    $row['status'],
                     $row['date'],
                     $row['time_in'],
                     $row['time_out'],
@@ -367,6 +373,7 @@ class BackupController extends Controller
     <Cell><Data ss:Type="String">Role</Data></Cell>
     <Cell><Data ss:Type="String">Employee Code</Data></Cell>
     <Cell><Data ss:Type="String">Position</Data></Cell>
+    <Cell><Data ss:Type="String">Status</Data></Cell>
     <Cell><Data ss:Type="String">Date</Data></Cell>
     <Cell><Data ss:Type="String">Time In</Data></Cell>
     <Cell><Data ss:Type="String">Time Out</Data></Cell>
@@ -402,21 +409,27 @@ XML;
             ->filter(fn (array $user): bool => ($user['role'] ?? null) === 'member')
             ->values();
 
+        if ($members->isEmpty()) {
+            return [
+                $this->buildEmptyPdfPageStream($generatedAt, $dataset['period'], 1, 2),
+                $this->buildSignatoryPdfPageStream($generatedAt, $dataset['period'], 2, 2),
+            ];
+        }
+
+        $totalPages = $members->count() + 1;
         $streams = $members
             ->map(
-                fn (array $user): string => $this->buildUserPdfPageStream(
+                fn (array $user, int $index): string => $this->buildUserPdfPageStream(
                     $generatedAt,
                     $dataset['period'],
                     $user,
+                    $index + 1,
+                    $totalPages,
                 ),
             )
             ->all();
 
-        if (empty($streams)) {
-            $streams[] = $this->buildEmptyPdfPageStream($generatedAt, $dataset['period']);
-        }
-
-        $streams[] = $this->buildSignatoryPdfPageStream($generatedAt, $dataset['period']);
+        $streams[] = $this->buildSignatoryPdfPageStream($generatedAt, $dataset['period'], $totalPages, $totalPages);
 
         return $streams;
     }
@@ -430,9 +443,10 @@ XML;
 
         $objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
         $objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
+        $objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>';
 
         $pageReferences = [];
-        $objectNumber = 4;
+        $objectNumber = 5;
 
         foreach ($pageStreams as $contentStream) {
             $pageObjectNumber = $objectNumber++;
@@ -440,7 +454,7 @@ XML;
             $pageReferences[] = $pageObjectNumber.' 0 R';
 
             $objects[$pageObjectNumber] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
-                .'/Resources << /Font << /F1 3 0 R >> >> /Contents '.$contentObjectNumber.' 0 R >>';
+                .'/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '.$contentObjectNumber.' 0 R >>';
             $objects[$contentObjectNumber] = "<< /Length ".strlen($contentStream)." >>\nstream\n"
                 .$contentStream
                 ."\nendstream";
@@ -474,7 +488,13 @@ XML;
     /**
      * @param  array<string, mixed>  $period
      */
-    private function buildUserPdfPageStream(string $generatedAt, array $period, array $user): string
+    private function buildUserPdfPageStream(
+        string $generatedAt,
+        array $period,
+        array $user,
+        int $pageNumber,
+        int $totalPages,
+    ): string
     {
         $attendanceDays = collect($user['attendance_days'] ?? []);
         $rows = $attendanceDays
@@ -496,91 +516,295 @@ XML;
             ];
         }
 
-        $stream = '';
-        $stream .= $this->pdfText(40, 748, "Elmar's Team PH Attendance Backup", 16);
-        $stream .= $this->pdfText(40, 728, 'Monthly member attendance summary', 10);
-        $stream .= $this->pdfLine(40, 720, 572, 720);
-        $stream .= $this->pdfText(40, 700, 'Period: '.($period['label'] ?? ''), 10);
-        $stream .= $this->pdfText(
-            40,
-            684,
-            'Generated at: '.CarbonImmutable::parse($generatedAt)->format('M d, Y h:i A'),
-            10,
+        $accountStatus = (string) ($user['status_label'] ?? $user['status'] ?? 'Active');
+        $latestAttendanceDate = (string) ($attendanceDays->first()['display_date'] ?? 'No records');
+        [$accountStatusFill, $accountStatusAccent] = $this->accountStatusPalette(
+            (string) ($user['status'] ?? $accountStatus),
         );
 
-        $stream .= $this->pdfText(40, 654, 'Member details', 11);
-        $stream .= $this->pdfText(40, 632, 'Name: '.($user['name'] ?? ''), 12);
+        $stream = $this->buildPdfHeader(
+            $generatedAt,
+            $period,
+            'Member Report',
+            'Monthly attendance backup',
+            $pageNumber,
+            $totalPages,
+        );
+        $stream .= $this->pdfText(30, 638, 'Member Details', 11.5, 'F2', [30, 41, 59]);
+        $stream .= $this->pdfRect(
+            30,
+            500,
+            552,
+            126,
+            strokeColor: [203, 213, 225],
+            fillColor: [255, 255, 255],
+            lineWidth: 0.8,
+        );
+        $stream .= $this->pdfRect(30, 610, 552, 8, fillColor: [239, 246, 255], lineWidth: 0);
+        $stream .= $this->pdfRect(30, 500, 6, 126, fillColor: [63, 120, 190], lineWidth: 0);
+        $stream .= $this->pdfLine(374, 514, 374, 594, [226, 232, 240], 0.8);
         $stream .= $this->pdfText(
-            40,
-            616,
-            'Employee Code: '.($user['employee_code'] ?? 'Not set'),
-            10,
+            46,
+            600,
+            $this->fitPdfText((string) ($user['name'] ?? ''), 308, 16, 'F2'),
+            16,
+            'F2',
+            [17, 24, 39],
         );
         $stream .= $this->pdfText(
-            280,
-            616,
-            'Position: '.($user['position'] ?? 'Not set'),
-            10,
-        );
-        $stream .= $this->pdfText(40, 600, 'Email: '.($user['email'] ?? ''), 10);
-        $stream .= $this->pdfText(
-            40,
+            46,
             580,
-            'Attendance days this month: '.$attendanceDays->count(),
+            $this->fitPdfText((string) ($user['email'] ?? ''), 308, 10),
             10,
+            'F1',
+            [71, 85, 105],
+        );
+        $stream .= $this->buildPdfTextPair(
+            46,
+            556,
+            132,
+            'Employee Code',
+            (string) ($user['employee_code'] ?? 'Not set'),
+        );
+        $stream .= $this->buildPdfTextPair(
+            188,
+            556,
+            164,
+            'Position',
+            (string) ($user['position'] ?? 'Not set'),
+        );
+        $stream .= $this->buildPdfMetricCard(
+            392,
+            556,
+            82,
+            34,
+            'Status',
+            $accountStatus,
+            $accountStatusFill,
+            $accountStatusAccent,
+        );
+        $stream .= $this->buildPdfMetricCard(
+            482,
+            556,
+            82,
+            34,
+            'Role',
+            (string) ($user['role_label'] ?? $user['role'] ?? 'Member'),
+            [248, 250, 252],
+            [71, 85, 105],
+        );
+        $stream .= $this->buildPdfMetricCard(
+            392,
+            512,
+            82,
+            34,
+            'Days',
+            (string) $attendanceDays->count(),
+            [239, 246, 255],
+            [29, 78, 216],
+        );
+        $stream .= $this->buildPdfMetricCard(
+            482,
+            512,
+            82,
+            34,
+            'Logs',
+            (string) ($user['attendance_log_count'] ?? 0),
+            [236, 253, 245],
+            [22, 101, 52],
+        );
+        $stream .= $this->buildPdfTextPair(46, 526, 200, 'Latest Attendance', $latestAttendanceDate);
+        $stream .= $this->pdfText(30, 486, 'Attendance Log Summary', 11.5, 'F2', [30, 41, 59]);
+        $stream .= $this->pdfText(
+            30,
+            470,
+            'Daily first time-in, last time-out, and completion status for the selected backup period.',
+            8.5,
+            'F1',
+            [100, 116, 139],
         );
 
-        return $stream.$this->buildUserPdfTable(
-            40,
-            548,
-            [120, 86, 86, 240],
+        $stream .= $this->buildUserPdfTable(
+            30,
+            454,
+            [120, 86, 86, 260],
             ['Date', 'Time In', 'Time Out', 'Status'],
             $rows,
         );
+
+        return $stream.$this->buildPdfFooter($generatedAt, $pageNumber, $totalPages);
     }
 
     /**
      * @param  array<string, mixed>  $period
      */
-    private function buildEmptyPdfPageStream(string $generatedAt, array $period): string
+    private function buildEmptyPdfPageStream(
+        string $generatedAt,
+        array $period,
+        int $pageNumber,
+        int $totalPages,
+    ): string
     {
-        $stream = '';
-        $stream .= $this->pdfText(40, 748, "Elmar's Team PH Attendance Backup", 16);
-        $stream .= $this->pdfText(40, 728, 'Monthly member attendance summary', 10);
-        $stream .= $this->pdfLine(40, 720, 572, 720);
-        $stream .= $this->pdfText(40, 700, 'Period: '.($period['label'] ?? ''), 10);
-        $stream .= $this->pdfText(
-            40,
-            684,
-            'Generated at: '.CarbonImmutable::parse($generatedAt)->format('M d, Y h:i A'),
-            10,
+        $stream = $this->buildPdfHeader(
+            $generatedAt,
+            $period,
+            'Archive Summary',
+            'Monthly attendance backup',
+            $pageNumber,
+            $totalPages,
         );
-        $stream .= $this->pdfText(40, 634, 'No member attendance records were found for this month.', 12);
+        $stream .= $this->pdfText(30, 638, 'Attendance Overview', 11.5, 'F2', [30, 41, 59]);
+        $stream .= $this->pdfRect(
+            30,
+            364,
+            552,
+            244,
+            strokeColor: [203, 213, 225],
+            fillColor: [255, 255, 255],
+            lineWidth: 0.8,
+        );
+        $stream .= $this->pdfRect(30, 594, 552, 10, fillColor: [239, 246, 255], lineWidth: 0);
+        $stream .= $this->pdfText(46, 564, 'No member attendance records found', 18, 'F2', [17, 24, 39]);
+        $stream .= $this->pdfText(
+            46,
+            542,
+            'The selected backup period does not contain any member time-in or time-out entries.',
+            10,
+            'F1',
+            [71, 85, 105],
+        );
+        $stream .= $this->pdfText(
+            46,
+            525,
+            'The approval page is still included so this PDF can be stored as an archive record.',
+            10,
+            'F1',
+            [71, 85, 105],
+        );
+        $stream .= $this->buildPdfMetricCard(
+            46,
+            432,
+            148,
+            48,
+            'Members Included',
+            '0',
+            [239, 246, 255],
+            [29, 78, 216],
+        );
+        $stream .= $this->buildPdfMetricCard(
+            206,
+            432,
+            166,
+            48,
+            'Report Status',
+            'No data available',
+            [255, 247, 237],
+            [180, 83, 9],
+        );
+        $stream .= $this->buildPdfMetricCard(
+            384,
+            432,
+            152,
+            48,
+            'Next Section',
+            'Approval page',
+            [236, 253, 245],
+            [22, 101, 52],
+        );
+        $stream .= $this->pdfText(
+            46,
+            400,
+            'Export another month from the backup center once attendance data becomes available.',
+            9,
+            'F1',
+            [100, 116, 139],
+        );
 
-        return $stream;
+        return $stream.$this->buildPdfFooter($generatedAt, $pageNumber, $totalPages);
     }
 
     /**
      * @param  array<string, mixed>  $period
      */
-    private function buildSignatoryPdfPageStream(string $generatedAt, array $period): string
+    private function buildSignatoryPdfPageStream(
+        string $generatedAt,
+        array $period,
+        int $pageNumber,
+        int $totalPages,
+    ): string
     {
-        $stream = '';
-        $stream .= $this->pdfText(40, 748, "Elmar's Team PH Attendance Backup", 16);
-        $stream .= $this->pdfText(40, 728, 'Approval page', 10);
-        $stream .= $this->pdfLine(40, 720, 572, 720);
-        $stream .= $this->pdfText(40, 700, 'Period: '.($period['label'] ?? ''), 10);
-        $stream .= $this->pdfText(
-            40,
-            684,
-            'Generated at: '.CarbonImmutable::parse($generatedAt)->format('M d, Y h:i A'),
-            10,
-        );
-        $stream .= $this->pdfText(40, 560, 'Approved and verified by:', 14);
-        $stream .= $this->pdfLine(40, 470, 240, 470);
-        $stream .= $this->pdfText(40, 446, 'Elmar B. Noche', 16);
+        $periodLabel = (string) ($period['label'] ?? '');
+        $generatedLabel = CarbonImmutable::parse($generatedAt)->format('M d, Y h:i A');
 
-        return $stream;
+        $stream = $this->buildPdfHeader(
+            $generatedAt,
+            $period,
+            'Approval Page',
+            'Approval and archive verification',
+            $pageNumber,
+            $totalPages,
+        );
+        $stream .= $this->pdfText(30, 638, 'Approval Summary', 11.5, 'F2', [30, 41, 59]);
+        $stream .= $this->pdfRect(
+            30,
+            292,
+            552,
+            316,
+            strokeColor: [203, 213, 225],
+            fillColor: [255, 255, 255],
+            lineWidth: 0.8,
+        );
+        $stream .= $this->pdfRect(30, 576, 552, 10, fillColor: [224, 231, 255], lineWidth: 0);
+        $stream .= $this->pdfText(46, 548, 'Attendance Backup Approval', 18, 'F2', [17, 24, 39]);
+        $stream .= $this->pdfText(
+            46,
+            528,
+            'This attendance backup reflects the archived member attendance records for the selected month.',
+            10,
+            'F1',
+            [71, 85, 105],
+        );
+        $stream .= $this->pdfText(
+            46,
+            512,
+            'It is prepared for archive storage and internal verification.',
+            10,
+            'F1',
+            [71, 85, 105],
+        );
+        $stream .= $this->buildPdfMetadataCard(46, 444, 220, 40, 'Backup Period', $periodLabel);
+        $stream .= $this->buildPdfMetadataCard(278, 444, 220, 40, 'Generated At', $generatedLabel);
+        $stream .= $this->pdfText(46, 394, 'Approved and verified by:', 10, 'F2', [47, 72, 88]);
+        $stream .= $this->pdfLine(46, 342, 286, 342, [148, 163, 184], 1.0);
+        $stream .= $this->pdfText(46, 320, 'Elmar B. Noche', 16, 'F2', [17, 24, 39]);
+        $stream .= $this->pdfText(46, 302, 'Attendance Administrator', 10, 'F1', [100, 116, 139]);
+        $stream .= $this->pdfText(46, 284, 'Signature', 8, 'F1', [100, 116, 139]);
+        $stream .= $this->pdfText(
+            334,
+            394,
+            'Archive note',
+            10,
+            'F2',
+            [47, 72, 88],
+        );
+        $stream .= $this->pdfText(
+            334,
+            372,
+            'Keep this page attached to the monthly attendance backup',
+            9,
+            'F1',
+            [71, 85, 105],
+        );
+        $stream .= $this->pdfText(
+            334,
+            356,
+            'when filing printed or digital archive copies.',
+            9,
+            'F1',
+            [71, 85, 105],
+        );
+
+        return $stream.$this->buildPdfFooter($generatedAt, $pageNumber, $totalPages);
     }
 
     /**
@@ -595,38 +819,85 @@ XML;
         array $headers,
         array $rows,
     ): string {
-        $rowHeight = 18.0;
-        $headerHeight = 20.0;
+        $headerHeight = 24.0;
+        $maxTableHeight = max(180.0, $topY - 72.0);
+        $rowCount = max(1, count($rows));
+        $rowHeight = max(
+            11.5,
+            min(
+                20.0,
+                ($maxTableHeight - $headerHeight) / $rowCount,
+            ),
+        );
+        $bodyFontSize = max(6.8, min(8.5, $rowHeight - 4.0));
         $tableWidth = array_sum($columnWidths);
         $tableHeight = $headerHeight + (count($rows) * $rowHeight);
         $bottomY = $topY - $tableHeight;
         $stream = '';
+        $borderColor = [203, 213, 225];
+        $gridColor = [226, 232, 240];
+        $headerFill = [30, 41, 59];
+        $rowFill = [248, 250, 252];
+        $textColor = [17, 24, 39];
 
-        $stream .= $this->pdfRect($x, $bottomY, $tableWidth, $tableHeight);
+        $stream .= $this->pdfRect(
+            $x,
+            $topY - $headerHeight,
+            $tableWidth,
+            $headerHeight,
+            fillColor: $headerFill,
+            lineWidth: 0,
+        );
+
+        foreach ($rows as $rowIndex => $row) {
+            $rowTop = $topY - $headerHeight - ($rowIndex * $rowHeight);
+            $rowBottom = $rowTop - $rowHeight;
+
+            if ($rowIndex % 2 === 0) {
+                $stream .= $this->pdfRect($x, $rowBottom, $tableWidth, $rowHeight, fillColor: $rowFill, lineWidth: 0);
+            }
+        }
+
+        $stream .= $this->pdfRect(
+            $x,
+            $bottomY,
+            $tableWidth,
+            $tableHeight,
+            strokeColor: $borderColor,
+            lineWidth: 0.8,
+        );
 
         $currentX = $x;
         foreach ($columnWidths as $width) {
             $currentX += $width;
             if ($currentX < ($x + $tableWidth)) {
-                $stream .= $this->pdfLine($currentX, $bottomY, $currentX, $topY);
+                $stream .= $this->pdfLine($currentX, $bottomY, $currentX, $topY, $gridColor, 0.6);
             }
         }
 
-        $stream .= $this->pdfLine($x, $topY - $headerHeight, $x + $tableWidth, $topY - $headerHeight);
+        $stream .= $this->pdfLine($x, $topY - $headerHeight, $x + $tableWidth, $topY - $headerHeight, $gridColor, 0.6);
 
         for ($index = 1; $index < count($rows); $index++) {
             $lineY = $topY - $headerHeight - ($index * $rowHeight);
-            $stream .= $this->pdfLine($x, $lineY, $x + $tableWidth, $lineY);
+            $stream .= $this->pdfLine($x, $lineY, $x + $tableWidth, $lineY, $gridColor, 0.6);
         }
 
         $headerX = $x;
         foreach ($headers as $index => $header) {
-            $stream .= $this->pdfText($headerX + 5, $topY - 13, $header, 9);
+            $stream .= $this->pdfText(
+                $headerX + 6,
+                $topY - (($headerHeight - 10) / 2) - 1.5,
+                $header,
+                9,
+                'F2',
+                [255, 255, 255],
+            );
             $headerX += $columnWidths[$index];
         }
 
         foreach ($rows as $rowIndex => $row) {
-            $textY = $topY - $headerHeight - ($rowIndex * $rowHeight) - 12;
+            $rowTop = $topY - $headerHeight - ($rowIndex * $rowHeight);
+            $textY = $rowTop - (($rowHeight - $bodyFontSize) / 2) - 1.5;
             $cellX = $x;
             $values = [
                 $row['date'] ?? '',
@@ -636,11 +907,15 @@ XML;
             ];
 
             foreach ($values as $index => $value) {
+                $font = $index === 3 ? 'F2' : 'F1';
+                $color = $index === 3 ? $this->attendanceStatusColor($value) : $textColor;
                 $stream .= $this->pdfText(
-                    $cellX + 5,
+                    $cellX + 6,
                     $textY,
-                    $this->fitPdfText($value, $columnWidths[$index] - 8),
-                    8,
+                    $this->fitPdfText($value, $columnWidths[$index] - 12, $bodyFontSize, $font),
+                    $bodyFontSize,
+                    $font,
+                    $color,
                 );
                 $cellX += $columnWidths[$index];
             }
@@ -665,53 +940,405 @@ XML;
         };
     }
 
-    private function fitPdfText(string $value, float $maxWidth): string
+    /**
+     * @return array{0: array<int, int>, 1: array<int, int>}
+     */
+    private function accountStatusPalette(string $status): array
     {
-        $maxCharacters = max(1, (int) floor($maxWidth / 4.2));
-
-        return strlen($value) <= $maxCharacters
-            ? $value
-            : substr($value, 0, max(0, $maxCharacters - 3)).'...';
+        return match (strtolower(trim($status))) {
+            'active' => [[236, 253, 245], [22, 101, 52]],
+            'inactive' => [[254, 242, 242], [153, 27, 27]],
+            default => [[255, 247, 237], [180, 83, 9]],
+        };
     }
 
-    private function pdfText(float $x, float $y, string $text, float $size = 10): string
+    /**
+     * @return array<int, int>
+     */
+    private function attendanceStatusColor(string $status): array
     {
-        return "BT\n/F1 {$size} Tf\n1 0 0 1 "
+        return match ($status) {
+            'Complete' => [22, 101, 52],
+            'Time In only', 'Time Out only' => [180, 83, 9],
+            default => [153, 27, 27],
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $period
+     */
+    private function buildPdfHeader(
+        string $generatedAt,
+        array $period,
+        string $section,
+        string $subtitle,
+        int $pageNumber,
+        int $totalPages,
+    ): string {
+        $periodLabel = (string) ($period['label'] ?? '');
+        $generatedLabel = CarbonImmutable::parse($generatedAt)->format('M d, Y h:i A');
+        $stream = '';
+
+        $stream .= $this->pdfRect(30, 722, 552, 42, fillColor: [19, 41, 75], lineWidth: 0);
+        $stream .= $this->pdfRect(30, 716, 552, 6, fillColor: [63, 120, 190], lineWidth: 0);
+        $stream .= $this->pdfText(46, 747, "Elmar's Team PH Attendance Backup", 16, 'F2', [255, 255, 255]);
+        $stream .= $this->pdfText(46, 732, $subtitle, 9, 'F1', [226, 232, 240]);
+        $stream .= $this->pdfRect(462, 734, 102, 18, fillColor: [239, 246, 255], lineWidth: 0);
+        $stream .= $this->pdfText(474, 741, 'Page '.$pageNumber.' / '.$totalPages, 9, 'F2', [19, 41, 75]);
+        $stream .= $this->pdfText(474, 727, $this->fitPdfText($section, 78, 8.5, 'F1'), 8.5, 'F1', [191, 219, 254]);
+        $stream .= $this->buildPdfMetadataCard(30, 674, 176, 34, 'Period', $periodLabel);
+        $stream .= $this->buildPdfMetadataCard(218, 674, 176, 34, 'Generated At', $generatedLabel);
+        $stream .= $this->buildPdfMetadataCard(406, 674, 176, 34, 'Section', $section);
+
+        return $stream;
+    }
+
+    private function buildPdfFooter(string $generatedAt, int $pageNumber, int $totalPages): string
+    {
+        $generatedLabel = CarbonImmutable::parse($generatedAt)->format('M d, Y h:i A');
+        $stream = '';
+
+        $stream .= $this->pdfLine(30, 46, 582, 46, [203, 213, 225], 0.8);
+        $stream .= $this->pdfText(30, 28, 'Prepared by the attendance backup system', 8, 'F1', [100, 116, 139]);
+        $stream .= $this->pdfText(250, 28, 'Generated '.$generatedLabel, 8, 'F1', [100, 116, 139]);
+        $stream .= $this->pdfText(510, 28, $pageNumber.'/'.$totalPages, 8, 'F2', [71, 85, 105]);
+
+        return $stream;
+    }
+
+    private function buildPdfMetadataCard(
+        float $x,
+        float $y,
+        float $width,
+        float $height,
+        string $label,
+        string $value,
+    ): string {
+        $stream = '';
+
+        $stream .= $this->pdfRect(
+            $x,
+            $y,
+            $width,
+            $height,
+            strokeColor: [203, 213, 225],
+            fillColor: [247, 250, 252],
+            lineWidth: 0.8,
+        );
+        $stream .= $this->buildPdfCenteredTextStack(
+            $x,
+            $y,
+            $width,
+            $height,
+            $label,
+            $value,
+            7.25,
+            9.5,
+            'F2',
+            'F1',
+            [71, 85, 105],
+            [17, 24, 39],
+            3.0,
+            12.0,
+        );
+
+        return $stream;
+    }
+
+    private function buildPdfTextPair(
+        float $x,
+        float $labelY,
+        float $maxWidth,
+        string $label,
+        string $value,
+    ): string {
+        $stream = '';
+
+        $stream .= $this->pdfText($x, $labelY, $label, 8, 'F1', [100, 116, 139]);
+        $stream .= $this->pdfText(
+            $x,
+            $labelY - 13,
+            $this->fitPdfText($value, $maxWidth, 10, 'F2'),
+            10,
+            'F2',
+            [17, 24, 39],
+        );
+
+        return $stream;
+    }
+
+    /**
+     * @param  array<int, int>  $fillColor
+     * @param  array<int, int>  $accentColor
+     */
+    private function buildPdfMetricCard(
+        float $x,
+        float $y,
+        float $width,
+        float $height,
+        string $label,
+        string $value,
+        array $fillColor,
+        array $accentColor,
+    ): string {
+        $isNumericValue = is_numeric($value);
+        $compactCard = $height <= 38.0;
+        $labelSize = $compactCard ? 6.75 : 7.25;
+        $valueSize = match (true) {
+            $compactCard && $isNumericValue => 12.5,
+            $compactCard => 8.75,
+            $isNumericValue => 16.0,
+            default => 9.5,
+        };
+        $stream = '';
+
+        $stream .= $this->pdfRect(
+            $x,
+            $y,
+            $width,
+            $height,
+            strokeColor: $accentColor,
+            fillColor: $fillColor,
+            lineWidth: 0.8,
+        );
+        $stream .= $this->buildPdfCenteredTextStack(
+            $x,
+            $y,
+            $width,
+            $height,
+            $label,
+            $value,
+            $labelSize,
+            $valueSize,
+            'F2',
+            'F2',
+            $accentColor,
+            [17, 24, 39],
+            $compactCard ? 3.0 : 4.0,
+            10.0,
+        );
+
+        return $stream;
+    }
+
+    /**
+     * @param  array<int, int>  $labelColor
+     * @param  array<int, int>  $valueColor
+     */
+    private function buildPdfCenteredTextStack(
+        float $x,
+        float $y,
+        float $width,
+        float $height,
+        string $label,
+        string $value,
+        float $labelSize,
+        float $valueSize,
+        string $labelFont,
+        string $valueFont,
+        array $labelColor,
+        array $valueColor,
+        float $lineGap,
+        float $horizontalPadding,
+    ): string {
+        $labelText = $this->fitPdfText($label, $width - ($horizontalPadding * 2), $labelSize, $labelFont);
+        $valueText = $this->fitPdfText($value, $width - ($horizontalPadding * 2), $valueSize, $valueFont);
+        $descentFactor = 0.22;
+        $groupHeight = $labelSize + $valueSize + $lineGap;
+        $groupBottom = $y + (($height - $groupHeight) / 2);
+        $valueBaseline = $groupBottom + ($valueSize * $descentFactor);
+        $labelBaseline = $groupBottom + $valueSize + $lineGap + ($labelSize * $descentFactor);
+        $centerX = $x + ($width / 2);
+
+        return $this->pdfCenteredText($centerX, $labelBaseline, $labelText, $labelSize, $labelFont, $labelColor)
+            .$this->pdfCenteredText($centerX, $valueBaseline, $valueText, $valueSize, $valueFont, $valueColor);
+    }
+
+    private function fitPdfText(
+        string $value,
+        float $maxWidth,
+        float $size = 10,
+        string $font = 'F1',
+    ): string
+    {
+        if ($this->estimatePdfTextWidth($value, $size, $font) <= $maxWidth) {
+            return $value;
+        }
+
+        $truncated = $value;
+
+        while ($truncated !== '' && $this->estimatePdfTextWidth($truncated.'...', $size, $font) > $maxWidth) {
+            $truncated = substr($truncated, 0, -1);
+        }
+
+        return $truncated === '' ? '' : rtrim($truncated).'...';
+    }
+
+    private function estimatePdfTextWidth(string $text, float $size, string $font = 'F1'): float
+    {
+        $width = 0.0;
+
+        foreach (str_split($text) as $character) {
+            $factor = match (true) {
+                $character === ' ' => 0.28,
+                str_contains('.,:;|!ijl\'`', $character) => 0.24,
+                str_contains('frt()[]{}', $character) => 0.34,
+                str_contains('mwWM@#%&QG', $character) => 0.78,
+                ctype_upper($character) => 0.62,
+                ctype_digit($character) => 0.56,
+                default => 0.5,
+            };
+
+            $width += $factor;
+        }
+
+        if ($font === 'F2') {
+            $width *= 1.05;
+        }
+
+        return $width * $size;
+    }
+
+    private function pdfText(
+        float $x,
+        float $y,
+        string $text,
+        float $size = 10,
+        string $font = 'F1',
+        ?array $color = null,
+    ): string {
+        $stream = "q\n";
+
+        if ($color !== null) {
+            $stream .= $this->pdfRgb($color, true);
+        }
+
+        $stream .= "BT\n/{$font} {$size} Tf\n1 0 0 1 "
             .$this->pdfNumber($x)
             .' '
             .$this->pdfNumber($y)
             ." Tm\n("
             .$this->escapePdfString($text)
-            .") Tj\nET\n";
+            .") Tj\nET\nQ\n";
+
+        return $stream;
     }
 
-    private function pdfRect(float $x, float $y, float $width, float $height): string
+    private function pdfCenteredText(
+        float $centerX,
+        float $y,
+        string $text,
+        float $size = 10,
+        string $font = 'F1',
+        ?array $color = null,
+    ): string {
+        $x = max(0.0, $centerX - ($this->estimatePdfTextWidth($text, $size, $font) / 2));
+
+        return $this->pdfText($x, $y, $text, $size, $font, $color);
+    }
+
+    private function pdfRightAlignedText(
+        float $rightX,
+        float $y,
+        string $text,
+        float $size = 10,
+        string $font = 'F1',
+        ?array $color = null,
+    ): string {
+        $x = max(0.0, $rightX - $this->estimatePdfTextWidth($text, $size, $font));
+
+        return $this->pdfText($x, $y, $text, $size, $font, $color);
+    }
+
+    private function pdfRect(
+        float $x,
+        float $y,
+        float $width,
+        float $height,
+        ?array $strokeColor = null,
+        ?array $fillColor = null,
+        float $lineWidth = 1.0,
+    ): string
     {
-        return $this->pdfNumber($x)
+        $operator = match (true) {
+            $strokeColor !== null && $fillColor !== null => 'B',
+            $fillColor !== null => 'f',
+            default => 'S',
+        };
+
+        $stream = "q\n";
+
+        if ($strokeColor !== null) {
+            $stream .= $this->pdfRgb($strokeColor, false);
+        }
+
+        if ($fillColor !== null) {
+            $stream .= $this->pdfRgb($fillColor, true);
+        }
+
+        if ($strokeColor !== null && $lineWidth > 0) {
+            $stream .= $this->pdfNumber($lineWidth)." w\n";
+        }
+
+        $stream .= $this->pdfNumber($x)
             .' '
             .$this->pdfNumber($y)
             .' '
             .$this->pdfNumber($width)
             .' '
             .$this->pdfNumber($height)
-            ." re S\n";
+            ." re {$operator}\nQ\n";
+
+        return $stream;
     }
 
-    private function pdfLine(float $x1, float $y1, float $x2, float $y2): string
+    private function pdfLine(
+        float $x1,
+        float $y1,
+        float $x2,
+        float $y2,
+        ?array $strokeColor = null,
+        float $lineWidth = 1.0,
+    ): string
     {
-        return $this->pdfNumber($x1)
+        $stream = "q\n";
+
+        if ($strokeColor !== null) {
+            $stream .= $this->pdfRgb($strokeColor, false);
+        }
+
+        $stream .= $this->pdfNumber($lineWidth)." w\n";
+        $stream .= $this->pdfNumber($x1)
             .' '
             .$this->pdfNumber($y1)
             .' m '
             .$this->pdfNumber($x2)
             .' '
             .$this->pdfNumber($y2)
-            ." l S\n";
+            ." l S\nQ\n";
+
+        return $stream;
     }
 
     private function pdfNumber(float $value): string
     {
         return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
+    }
+
+    /**
+     * @param  array<int, int>  $color
+     */
+    private function pdfRgb(array $color, bool $fill): string
+    {
+        $operator = $fill ? 'rg' : 'RG';
+        [$red, $green, $blue] = $color;
+
+        return $this->pdfNumber($red / 255)
+            .' '
+            .$this->pdfNumber($green / 255)
+            .' '
+            .$this->pdfNumber($blue / 255)
+            ." {$operator}\n";
     }
 
     private function escapePdfString(string $value): string

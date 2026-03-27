@@ -22,6 +22,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::middleware('role:super_admin,admin')->group(function () {
         Route::get('users', [ManagedUserController::class, 'index'])->name('users.index');
         Route::post('users', [ManagedUserController::class, 'store'])->name('users.store');
+        Route::patch('users/{user}/status', [ManagedUserController::class, 'updateStatus'])->name('users.update-status');
 
         Route::get('attendances', [AttendanceController::class, 'index'])->name('attendances.index');
         Route::get('attendances/export', [AttendanceController::class, 'export'])->name('attendances.export');
@@ -30,6 +31,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     });
 
     Route::middleware('role:super_admin')->group(function () {
+        Route::post('attendances/manual-time-out', [AttendanceController::class, 'storeManualTimeOut'])->name('attendances.store-manual-time-out');
+        Route::delete('attendances/{attendance}', [AttendanceController::class, 'destroy'])->name('attendances.destroy');
         Route::patch('attendances/{attendance}', [AttendanceController::class, 'update'])->name('attendances.update');
     });
 });
