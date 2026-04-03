@@ -12,8 +12,9 @@ if [ -n "$APP_URL" ]; then
     export APP_URL=$(echo "$APP_URL" | sed 's|^http://|https://|')
 fi
 
-# Run migrations
+# Run migrations and seed
 php artisan migrate --force
+php artisan db:seed --force
 
 # Clear any stale cache from previous deploys
 php artisan config:clear
