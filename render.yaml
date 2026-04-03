@@ -12,7 +12,9 @@ services:
       - key: APP_DEBUG
         value: false
       - key: APP_URL
-        sync: false
+        value: https://attendance-elmars-teamph.onrender.com
+      - key: ASSET_URL
+        value: https://attendance-elmars-teamph.onrender.com
       - key: APP_TIMEZONE
         value: Asia/Manila
       - key: DB_CONNECTION
