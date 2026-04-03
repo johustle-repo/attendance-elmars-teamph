@@ -42,6 +42,7 @@ test('super admin accounts are hidden from the user management page', function (
         'role' => UserRole::Member,
         'email_verified_at' => now(),
         'name' => 'Visible Member',
+        'sub_name' => 'Visible Alias',
         'email' => 'visible-member@example.com',
     ]);
 
@@ -58,6 +59,13 @@ test('super admin accounts are hidden from the user management page', function (
                         && ! $emails->contains($superAdmin->email);
                 })
                 ->where('users.0.status', fn ($status): bool => in_array($status, ['active', 'inactive'], true))
+                ->where(
+                    'users',
+                    fn ($users): bool => collect($users)->contains(
+                        fn (array $user): bool => ($user['email'] ?? null) === $member->email
+                            && ($user['sub_name'] ?? null) === $member->sub_name,
+                    ),
+                )
                 ->where('allowedRoles', function ($roles): bool {
                     return ! collect($roles)->pluck('value')->contains('super_admin');
                 })
@@ -71,12 +79,66 @@ test('admin can open the backup page', function () {
     $admin = User::factory()->create([
         'role' => UserRole::Admin,
         'email_verified_at' => now(),
+        'name' => 'Zulu Admin',
+    ]);
+
+    User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'name' => 'Elmar B. Noche',
+        'sub_name' => 'Alexander Bennett',
+        'email' => 'elmar-priority@example.com',
     ]);
 
     $this->actingAs($admin)
         ->get('/backups')
         ->assertOk()
-        ->assertInertia(fn (AssertableInertia $page) => $page->component('backups/index'));
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('backups/index')
+            ->where('summary.totalWorkHours', '0h 00m')
+            ->where('backupUsers.0.name', 'Elmar B. Noche')
+            ->where('backupUsers.0.sub_name', 'Alexander Bennett'));
+});
+
+test('backup page includes inactive users only when they have attendance in the selected month', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+        'email_verified_at' => now(),
+    ]);
+
+    $inactiveWithAttendance = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'name' => 'Inactive With Attendance',
+        'status' => User::STATUS_INACTIVE,
+    ]);
+
+    $inactiveWithoutAttendance = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'name' => 'Inactive Without Attendance',
+        'status' => User::STATUS_INACTIVE,
+    ]);
+
+    Attendance::query()->create([
+        'user_id' => $inactiveWithAttendance->id,
+        'recorded_at' => now()->startOfMonth()->addDay()->setTime(8, 0),
+        'entry_type' => 'time_in',
+        'scanned_code' => $inactiveWithAttendance->qr_value,
+        'source' => 'qr_scan',
+    ]);
+
+    $this->actingAs($admin)
+        ->get('/backups?year='.now()->year.'&month='.now()->month)
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page) use ($inactiveWithAttendance, $inactiveWithoutAttendance): void {
+            $page->where('backupUsers', function ($users) use ($inactiveWithAttendance, $inactiveWithoutAttendance): bool {
+                $names = collect($users)->pluck('name');
+
+                return $names->contains($inactiveWithAttendance->name)
+                    && ! $names->contains($inactiveWithoutAttendance->name);
+            });
+        });
 });
 
 test('members cannot open management pages', function () {
@@ -524,6 +586,7 @@ test('backup export includes users and attendance data for selected month', func
         'role' => UserRole::Member,
         'email_verified_at' => now(),
         'name' => 'Archive Member',
+        'sub_name' => 'Archive Alias',
         'employee_code' => 'ATT-BACKUP',
     ]);
 
@@ -557,22 +620,89 @@ test('backup export includes users and attendance data for selected month', func
     $memberBackup = collect($json['users'])->firstWhere('email', $member->email);
 
     expect($memberBackup['attendance_day_count'])->toBe(1);
+    expect($memberBackup['sub_name'])->toBe('Archive Alias');
+    expect($memberBackup['total_work_minutes'])->toBe(555);
+    expect($memberBackup['total_work_hours'])->toBe('9h 15m');
     expect($memberBackup['attendance_days'][0]['time_in'])->toBe('08:15 AM');
     expect($memberBackup['attendance_days'][0]['time_out'])->toBe('05:30 PM');
+    expect($memberBackup['attendance_days'][0]['total_work_minutes'])->toBe(555);
+    expect($memberBackup['attendance_days'][0]['total_work_hours'])->toBe('9h 15m');
 });
 
 test('backup export can be downloaded as excel', function () {
     $admin = User::factory()->create([
         'role' => UserRole::Admin,
         'email_verified_at' => now(),
+        'name' => 'Backup Admin',
+    ]);
+
+    $elmar = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'name' => 'Elmar B. Noche',
+        'sub_name' => 'Alexander Bennett',
+        'email' => 'elmar-sheet@example.com',
+    ]);
+
+    Attendance::query()->create([
+        'user_id' => $elmar->id,
+        'recorded_at' => now()->startOfMonth()->addDay()->setTime(8, 0),
+        'entry_type' => 'time_in',
+        'scanned_code' => $elmar->qr_value,
+        'source' => 'qr_scan',
+    ]);
+
+    Attendance::query()->create([
+        'user_id' => $elmar->id,
+        'recorded_at' => now()->startOfMonth()->addDay()->setTime(17, 0),
+        'entry_type' => 'time_out',
+        'scanned_code' => $elmar->qr_value,
+        'source' => 'qr_scan',
+    ]);
+
+    $member = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'name' => 'Second Member',
+        'email' => 'second-member@example.com',
+    ]);
+
+    Attendance::query()->create([
+        'user_id' => $member->id,
+        'recorded_at' => now()->startOfMonth()->addDays(2)->setTime(8, 30),
+        'entry_type' => 'time_in',
+        'scanned_code' => $member->qr_value,
+        'source' => 'qr_scan',
+    ]);
+
+    Attendance::query()->create([
+        'user_id' => $member->id,
+        'recorded_at' => now()->startOfMonth()->addDays(2)->setTime(17, 30),
+        'entry_type' => 'time_out',
+        'scanned_code' => $member->qr_value,
+        'source' => 'qr_scan',
     ]);
 
     $response = $this->actingAs($admin)->get('/backups/export?year='.now()->year.'&month='.now()->month.'&type=excel');
 
     $response->assertOk();
     $response->assertHeader('content-type', 'application/vnd.ms-excel; charset=UTF-8');
-    expect($response->streamedContent())->toContain("Elmar's Team PH Backup");
-    expect($response->streamedContent())->toContain('Approved and verified by:');
+    $excel = $response->streamedContent();
+
+    expect($excel)->toContain("Elmar's Team PH Backup");
+    expect($excel)->not->toContain('Worksheet ss:Name="Backup Admin"');
+    expect($excel)->not->toContain('backup-admin@example.com');
+    expect($excel)->toContain('Worksheet ss:Name="Elmar B. Noche"');
+    expect($excel)->toContain('Sub Name');
+    expect($excel)->toContain('Alexander Bennett');
+    expect($excel)->toContain('Worksheet ss:Name="Second Member"');
+    expect($excel)->toContain('Daily Total Hours');
+    expect($excel)->toContain('Member Total Hours');
+    expect($excel)->toContain('9h 00m');
+    expect($excel)->toContain('Approved and verified by:');
+    expect(strpos($excel, 'Worksheet ss:Name="Elmar B. Noche"'))->toBeLessThan(
+        strpos($excel, 'Worksheet ss:Name="Second Member"'),
+    );
 });
 
 test('backup export can be downloaded as pdf with signatory', function () {
@@ -586,6 +716,7 @@ test('backup export can be downloaded as pdf with signatory', function () {
         'role' => UserRole::Member,
         'email_verified_at' => now(),
         'name' => 'Monthly Member',
+        'sub_name' => 'Monthly Alias',
         'email' => 'monthly-member@example.com',
         'employee_code' => 'ATT-MONTH',
     ]);
@@ -617,6 +748,9 @@ test('backup export can be downloaded as pdf with signatory', function () {
     expect($pdf)->toContain('Date');
     expect($pdf)->toContain('Time In');
     expect($pdf)->toContain('monthly-member@example.com');
+    expect($pdf)->toContain('Sub Name: Monthly Alias');
+    expect($pdf)->toContain('Total Hours');
+    expect($pdf)->toContain('9h 00m');
     expect($pdf)->not->toContain('admin-backup@example.com');
     expect($pdf)->toContain('Approved and verified by:');
     expect($pdf)->toContain('Elmar B. Noche');

@@ -16,12 +16,15 @@ export type BackupAttendanceDay = {
     display_date: string;
     time_in?: string | null;
     time_out?: string | null;
+    total_work_minutes?: number | null;
+    total_work_hours?: string | null;
     logs: BackupAttendanceLog[];
 };
 
 export type BackupUser = {
     id: number;
     name: string;
+    sub_name?: string | null;
     email: string;
     role: string;
     role_label?: string | null;
@@ -33,6 +36,8 @@ export type BackupUser = {
     created_at?: string | null;
     attendance_day_count: number;
     attendance_log_count: number;
+    total_work_minutes: number;
+    total_work_hours: string;
     attendance_days: BackupAttendanceDay[];
 };
 
@@ -42,4 +47,5 @@ export type BackupSummary = {
     usersWithAttendance: number;
     attendanceDayCount: number;
     attendanceLogCount: number;
+    totalWorkHours: string;
 };

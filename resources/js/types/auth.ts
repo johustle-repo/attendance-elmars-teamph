@@ -1,6 +1,7 @@
 export type User = {
     id: number;
     name: string;
+    sub_name?: string | null;
     email: string;
     role: 'super_admin' | 'admin' | 'member';
     employee_code?: string | null;

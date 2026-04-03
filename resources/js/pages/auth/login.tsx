@@ -29,7 +29,8 @@ export default function Login({ status, canResetPassword }: Props) {
 
             <div className="space-y-6">
                 <Form
-                    {...store.form()}
+                    action={store.url()}
+                    method="post"
                     resetOnSuccess={['password']}
                     className="space-y-6"
                 >
@@ -39,7 +40,7 @@ export default function Login({ status, canResetPassword }: Props) {
                                 <div className="grid gap-2">
                                     <Label htmlFor="email">Email address</Label>
                                     <div className="relative">
-                                        <Mail className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                        <Mail className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
                                         <Input
                                             id="email"
                                             type="email"
@@ -57,7 +58,9 @@ export default function Login({ status, canResetPassword }: Props) {
 
                                 <div className="grid gap-2">
                                     <div className="flex items-center">
-                                        <Label htmlFor="password">Password</Label>
+                                        <Label htmlFor="password">
+                                            Password
+                                        </Label>
                                         {canResetPassword && (
                                             <TextLink
                                                 href={request()}
@@ -69,7 +72,7 @@ export default function Login({ status, canResetPassword }: Props) {
                                         )}
                                     </div>
                                     <div className="relative">
-                                        <KeyRound className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                        <KeyRound className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
                                         <Input
                                             id="password"
                                             type={
@@ -91,7 +94,7 @@ export default function Login({ status, canResetPassword }: Props) {
                                                     (value) => !value,
                                                 )
                                             }
-                                            className="absolute top-1/2 right-3 -translate-y-1/2 text-slate-500 transition hover:text-slate-700"
+                                            className="absolute top-1/2 right-3 -translate-y-1/2 text-slate-500 transition hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                                             aria-label={
                                                 showPassword
                                                     ? 'Hide password'
@@ -109,18 +112,20 @@ export default function Login({ status, canResetPassword }: Props) {
                                     <InputError message={errors.password} />
                                 </div>
 
-                                <div className="flex items-center space-x-3 rounded-xl bg-slate-50 px-4 py-3">
+                                <div className="flex items-center space-x-3 rounded-xl bg-slate-50 px-4 py-3 dark:bg-white/5">
                                     <Checkbox
                                         id="remember"
                                         name="remember"
                                         tabIndex={3}
                                     />
-                                    <Label htmlFor="remember">Remember me</Label>
+                                    <Label htmlFor="remember">
+                                        Remember me
+                                    </Label>
                                 </div>
 
                                 <Button
                                     type="submit"
-                                    className="h-11 w-full bg-slate-950 text-white hover:bg-slate-800"
+                                    className="h-11 w-full bg-slate-950 text-white hover:bg-slate-800 dark:bg-cyan-500 dark:text-slate-950 dark:hover:bg-cyan-400"
                                     tabIndex={4}
                                     disabled={processing}
                                     data-test="login-button"
@@ -134,7 +139,7 @@ export default function Login({ status, canResetPassword }: Props) {
                 </Form>
 
                 {status && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
                         {status}
                     </div>
                 )}

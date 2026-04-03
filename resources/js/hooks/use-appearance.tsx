@@ -11,9 +11,19 @@ export type UseAppearanceReturn = {
 
 const listeners = new Set<() => void>();
 let currentAppearance: Appearance = 'system';
+let hasInitialized = false;
+let systemThemeMediaQuery: MediaQueryList | null = null;
+
+const APPEARANCE_VALUES = ['light', 'dark', 'system'] as const;
+
+const isAppearance = (value: unknown): value is Appearance => {
+    return APPEARANCE_VALUES.includes(value as Appearance);
+};
 
 const prefersDark = (): boolean => {
-    if (typeof window === 'undefined') return false;
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+        return false;
+    }
 
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
 };
@@ -24,10 +34,38 @@ const setCookie = (name: string, value: string, days = 365): void => {
     document.cookie = `${name}=${value};path=/;max-age=${maxAge};SameSite=Lax`;
 };
 
+const getCookieAppearance = (): Appearance | null => {
+    if (typeof document === 'undefined') return null;
+
+    const matchedAppearance = document.cookie.match(
+        /(?:^|;\s*)appearance=([^;]+)/,
+    )?.[1];
+
+    if (!matchedAppearance) {
+        return null;
+    }
+
+    const appearance = decodeURIComponent(matchedAppearance);
+
+    return isAppearance(appearance) ? appearance : null;
+};
+
 const getStoredAppearance = (): Appearance => {
     if (typeof window === 'undefined') return 'system';
 
-    return (localStorage.getItem('appearance') as Appearance) || 'system';
+    let storedAppearance: string | null = null;
+
+    try {
+        storedAppearance = window.localStorage.getItem('appearance');
+    } catch {
+        storedAppearance = null;
+    }
+
+    if (isAppearance(storedAppearance)) {
+        return storedAppearance;
+    }
+
+    return getCookieAppearance() ?? 'system';
 };
 
 const isDarkMode = (appearance: Appearance): boolean => {
@@ -40,6 +78,7 @@ const applyTheme = (appearance: Appearance): void => {
     const isDark = isDarkMode(appearance);
 
     document.documentElement.classList.toggle('dark', isDark);
+    document.documentElement.dataset.appearance = appearance;
     document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
 };
 
@@ -52,26 +91,59 @@ const subscribe = (callback: () => void) => {
 const notify = (): void => listeners.forEach((listener) => listener());
 
 const mediaQuery = (): MediaQueryList | null => {
-    if (typeof window === 'undefined') return null;
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+        return null;
+    }
 
     return window.matchMedia('(prefers-color-scheme: dark)');
 };
 
-const handleSystemThemeChange = (): void => applyTheme(currentAppearance);
-
-export function initializeTheme(): void {
-    if (typeof window === 'undefined') return;
-
-    if (!localStorage.getItem('appearance')) {
-        localStorage.setItem('appearance', 'system');
-        setCookie('appearance', 'system');
+const setStoredAppearance = (appearance: Appearance): void => {
+    if (typeof window === 'undefined') {
+        return;
     }
 
+    try {
+        window.localStorage.setItem('appearance', appearance);
+    } catch {
+        // Ignore storage failures and rely on cookies / in-memory state.
+    }
+};
+
+const addMediaQueryListener = (query: MediaQueryList, listener: () => void): void => {
+    if (typeof query.addEventListener === 'function') {
+        query.addEventListener('change', listener);
+
+        return;
+    }
+
+    if (typeof query.addListener === 'function') {
+        query.addListener(listener);
+    }
+};
+
+const handleSystemThemeChange = (): void => {
+    if (currentAppearance !== 'system') {
+        return;
+    }
+
+    applyTheme(currentAppearance);
+    notify();
+};
+
+export function initializeTheme(): void {
+    if (typeof window === 'undefined' || hasInitialized) return;
+
     currentAppearance = getStoredAppearance();
+    setStoredAppearance(currentAppearance);
+    setCookie('appearance', currentAppearance);
     applyTheme(currentAppearance);
 
-    // Set up system theme change listener
-    mediaQuery()?.addEventListener('change', handleSystemThemeChange);
+    systemThemeMediaQuery = mediaQuery();
+    if (systemThemeMediaQuery) {
+        addMediaQueryListener(systemThemeMediaQuery, handleSystemThemeChange);
+    }
+    hasInitialized = true;
 }
 
 export function useAppearance(): UseAppearanceReturn {
@@ -90,7 +162,7 @@ export function useAppearance(): UseAppearanceReturn {
         currentAppearance = mode;
 
         // Store in localStorage for client-side persistence...
-        localStorage.setItem('appearance', mode);
+        setStoredAppearance(mode);
 
         // Store in cookie for SSR...
         setCookie('appearance', mode);

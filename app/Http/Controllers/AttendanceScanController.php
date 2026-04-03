@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attendance;
+use App\Models\AuditLog;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -99,17 +100,36 @@ class AttendanceScanController extends Controller
             return back()->with('error', $user->name.' is already timed in. Please use Time Out next.');
         }
 
-        if ($entryType === 'time_out' && $latestAttendanceToday?->entry_type !== 'time_in') {
+        // Prevent a new Time In once the user has a completed cycle (Time In + Time Out) for today.
+        if ($entryType === 'time_in' && $latestAttendanceToday?->entry_type === 'time_out') {
+            return back()->with('error', $user->name.' has already completed attendance for today.');
+        }
+
+        // Time Out requires an open Time In (latest today must be a time_in entry).
+        if ($entryType === 'time_out' && ($latestAttendanceToday === null || $latestAttendanceToday->entry_type !== 'time_in')) {
             return back()->with('error', $user->name.' must record Time In before Time Out.');
         }
 
-        Attendance::query()->create([
+        $attendance = Attendance::query()->create([
             'user_id' => $user->id,
             'recorded_at' => $recordedAt,
             'entry_type' => $entryType,
             'scanned_code' => $validated['qr_code'],
             'source' => 'qr_scan',
         ]);
+
+        AuditLog::record(
+            request: $request,
+            action: 'attendance.scan',
+            resourceType: 'Attendance',
+            resourceId: $attendance->id,
+            newValues: [
+                'user_id' => $user->id,
+                'entry_type' => $entryType,
+                'recorded_at' => $recordedAt->toIso8601String(),
+                'source' => 'qr_scan',
+            ],
+        );
 
         return redirect()
             ->route('scan.create')

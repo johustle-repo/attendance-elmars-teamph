@@ -10,6 +10,8 @@
 /resources/js/routes
 /resources/js/wayfinder
 /vendor
+.infinityfree-deploy
+deploy/infinityfree/.env.infinityfree
 .DS_Store
 .env
 .env.backup
@@ -26,3 +28,4 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+/dist

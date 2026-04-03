@@ -31,6 +31,7 @@ class ManagedUserController extends Controller
             'users' => $managedUsers->map(fn (User $managedUser) => [
                 'id' => $managedUser->id,
                 'name' => $managedUser->name,
+                'sub_name' => $managedUser->sub_name,
                 'email' => $managedUser->email,
                 'role' => $managedUser->role?->value,
                 'role_label' => $managedUser->role?->label(),
@@ -70,6 +71,7 @@ class ManagedUserController extends Controller
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'sub_name' => ['nullable', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'role' => ['required', Rule::in($allowedRoles)],
             'position' => ['nullable', 'string', 'max:255'],
@@ -79,6 +81,9 @@ class ManagedUserController extends Controller
 
         User::query()->create([
             'name' => trim($validated['name']),
+            'sub_name' => filled($validated['sub_name'] ?? null)
+                ? trim((string) $validated['sub_name'])
+                : null,
             'email' => Str::lower(trim($validated['email'])),
             'role' => $validated['role'],
             'position' => filled($validated['position'] ?? null)

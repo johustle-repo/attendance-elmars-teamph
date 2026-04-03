@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { CalendarDays, DatabaseBackup, LayoutGrid, QrCode, Users } from 'lucide-react';
+import { CalendarDays, ClipboardList, DatabaseBackup, LayoutGrid, QrCode, Receipt, Users } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -43,6 +43,20 @@ export function AppSidebar() {
                       title: 'Backups',
                       href: '/backups',
                       icon: DatabaseBackup,
+                  },
+                  {
+                      title: 'Payslips',
+                      href: '/payslips',
+                      icon: Receipt,
+                  },
+              ]
+            : []),
+        ...(auth.user.role === 'super_admin'
+            ? [
+                  {
+                      title: 'Audit Logs',
+                      href: '/audit-logs',
+                      icon: ClipboardList,
                   },
               ]
             : []),

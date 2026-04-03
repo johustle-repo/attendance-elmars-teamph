@@ -2,4 +2,5 @@ export type * from './auth';
 export type * from './attendance';
 export type * from './backup';
 export type * from './navigation';
+export type * from './payslip';
 export type * from './ui';

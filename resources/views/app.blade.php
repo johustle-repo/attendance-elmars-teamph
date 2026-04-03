@@ -4,18 +4,29 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
-        {{-- Inline script to detect system dark mode preference and apply it immediately --}}
+        {{-- Inline script to apply the saved appearance mode before the app hydrates --}}
         <script>
             (function() {
-                const appearance = '{{ $appearance ?? "system" }}';
+                const fallbackAppearance = @js($appearance ?? 'system');
+                let storedAppearance = null;
 
-                if (appearance === 'system') {
-                    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-                    if (prefersDark) {
-                        document.documentElement.classList.add('dark');
-                    }
+                try {
+                    storedAppearance = window.localStorage.getItem('appearance');
+                } catch (error) {
+                    storedAppearance = null;
                 }
+
+                const appearance = ['light', 'dark', 'system'].includes(storedAppearance)
+                    ? storedAppearance
+                    : fallbackAppearance;
+                const prefersDark = typeof window.matchMedia === 'function'
+                    ? window.matchMedia('(prefers-color-scheme: dark)').matches
+                    : false;
+                const isDark = appearance === 'dark' || (appearance === 'system' && prefersDark);
+
+                document.documentElement.classList.toggle('dark', isDark);
+                document.documentElement.dataset.appearance = appearance;
+                document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
             })();
         </script>
 

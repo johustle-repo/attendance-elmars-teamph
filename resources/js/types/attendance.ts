@@ -53,11 +53,13 @@ export type AttendanceSummaryItem = {
     time_out_date?: string | null;
     time_out_time?: string | null;
     time_out_display?: string | null;
+    total_hours_label?: string | null;
 };
 
 export type ManagedUser = {
     id: number;
     name: string;
+    sub_name?: string | null;
     email: string;
     role: string;
     role_label: string;

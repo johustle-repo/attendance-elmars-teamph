@@ -38,7 +38,10 @@ export function QrIdentityCard({
                 return;
             }
 
-            const dataUrl = await createQrImageDataUrl(value, compact ? 420 : 520);
+            const dataUrl = await createQrImageDataUrl(
+                value,
+                compact ? 420 : 520,
+            );
 
             if (!cancelled) {
                 setPreviewSrc(dataUrl);
@@ -74,28 +77,30 @@ export function QrIdentityCard({
     return (
         <div
             className={cn(
-                'rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm',
+                'rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/88 dark:shadow-black/20',
                 className,
             )}
         >
             <div className="flex items-start justify-between gap-3">
                 <div>
-                    <p className="text-lg font-semibold text-slate-950">
+                    <p className="text-lg font-semibold text-slate-950 dark:text-slate-50">
                         {name}
                     </p>
                     {subtitle && (
-                        <p className="text-sm text-slate-500">{subtitle}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            {subtitle}
+                        </p>
                     )}
                 </div>
 
-                <div className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-800">
+                <div className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold tracking-[0.18em] text-cyan-800 uppercase dark:bg-cyan-500/10 dark:text-cyan-200">
                     QR Card
                 </div>
             </div>
 
             <div
                 className={cn(
-                    'mt-5 rounded-[1.5rem] bg-[radial-gradient(circle_at_top,_#cffafe,_#ffffff_58%)] p-4',
+                    'mt-5 rounded-[1.5rem] bg-[radial-gradient(circle_at_top,_#cffafe,_#ffffff_58%)] p-4 dark:bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.18),_rgba(15,23,42,0.96)_62%)]',
                     compact ? 'p-3' : 'p-5',
                 )}
             >
@@ -106,14 +111,14 @@ export function QrIdentityCard({
                         className="mx-auto aspect-square w-full max-w-[240px] rounded-2xl bg-white p-2"
                     />
                 ) : (
-                    <div className="mx-auto flex aspect-square w-full max-w-[240px] items-center justify-center rounded-2xl bg-slate-100 text-sm text-slate-500">
+                    <div className="mx-auto flex aspect-square w-full max-w-[240px] items-center justify-center rounded-2xl bg-slate-100 text-sm text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                         No QR available
                     </div>
                 )}
             </div>
 
             {value && (
-                <p className="mt-4 break-all rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs break-all text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                     {value}
                 </p>
             )}
@@ -124,7 +129,7 @@ export function QrIdentityCard({
                     variant="outline"
                     onClick={() => value && void copy(value)}
                     disabled={!value}
-                    className="text-slate-400 hover:text-slate-500"
+                    className="text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
                 >
                     <Copy className="mr-2 h-4 w-4" />
                     {copiedText === value ? 'Copied' : 'Copy QR value'}
@@ -133,7 +138,7 @@ export function QrIdentityCard({
                     type="button"
                     onClick={() => void handleDownload()}
                     disabled={!value || isDownloading}
-                    className="bg-slate-950 text-white hover:bg-slate-800"
+                    className="bg-slate-950 text-white hover:bg-slate-800 dark:bg-cyan-500 dark:text-slate-950 dark:hover:bg-cyan-400"
                 >
                     {isDownloading ? (
                         <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />

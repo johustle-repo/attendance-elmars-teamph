@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attendance;
+use App\Models\AuditLog;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Date;
@@ -56,12 +59,23 @@ class AttendanceController extends Controller
             'recorded_time' => ['required', 'date_format:H:i'],
         ]);
 
+        $oldRecordedAt = $attendance->recorded_at?->toIso8601String();
+
         $attendance->update([
             'recorded_at' => Carbon::parse(
                 $validated['recorded_date'].' '.$validated['recorded_time'],
                 config('app.timezone'),
             ),
         ]);
+
+        AuditLog::record(
+            request: $request,
+            action: 'attendance.update',
+            resourceType: 'Attendance',
+            resourceId: $attendance->id,
+            oldValues: ['recorded_at' => $oldRecordedAt],
+            newValues: ['recorded_at' => $attendance->fresh()?->recorded_at?->toIso8601String()],
+        );
 
         return redirect()
             ->route('attendances.index', $request->only('search', 'date'))
@@ -75,6 +89,19 @@ class AttendanceController extends Controller
 
         $entryTypeLabel = str($attendance->entry_type)->replace('_', ' ')->headline()->value();
         $userName = $attendance->user?->name ?? 'this user';
+
+        AuditLog::record(
+            request: $request,
+            action: 'attendance.delete',
+            resourceType: 'Attendance',
+            resourceId: $attendance->id,
+            oldValues: [
+                'user_id' => $attendance->user_id,
+                'entry_type' => $attendance->entry_type,
+                'recorded_at' => $attendance->recorded_at?->toIso8601String(),
+                'source' => $attendance->source,
+            ],
+        );
 
         $attendance->delete();
 
@@ -135,13 +162,26 @@ class AttendanceController extends Controller
                 ->with('error', 'Time Out must be later than the recorded Time In.');
         }
 
-        Attendance::query()->create([
+        $newAttendance = Attendance::query()->create([
             'user_id' => $user->id,
             'recorded_at' => $recordedAt,
             'entry_type' => 'time_out',
             'scanned_code' => $user->qr_value ?? 'manual-time-out-'.$user->id,
             'source' => 'manual_adjustment',
         ]);
+
+        AuditLog::record(
+            request: $request,
+            action: 'attendance.manual_time_out',
+            resourceType: 'Attendance',
+            resourceId: $newAttendance->id,
+            newValues: [
+                'user_id' => $user->id,
+                'entry_type' => 'time_out',
+                'recorded_at' => $recordedAt->toIso8601String(),
+                'source' => 'manual_adjustment',
+            ],
+        );
 
         return redirect()
             ->route('attendances.index', $request->only('search', 'date'))
@@ -227,6 +267,11 @@ class AttendanceController extends Controller
                     'time_out_date' => optional($timeOut?->recorded_at)->toDateString(),
                     'time_out_time' => optional($timeOut?->recorded_at)->format('H:i'),
                     'time_out_display' => optional($timeOut?->recorded_at)->format('h:i A'),
+                    'total_hours_label' => $this->shiftHoursLabel(
+                        $timeIn?->recorded_at,
+                        $timeOut?->recorded_at,
+                        (bool) ($anchor->user?->night_shift_eligible ?? false),
+                    ),
                 ];
             })
             ->sortBy([
@@ -247,6 +292,7 @@ class AttendanceController extends Controller
                 $attendance['time_in_display'] ?? '',
                 $attendance['status_label'] ?? '',
                 $attendance['time_out_display'] ?? '',
+                $attendance['total_hours_label'] ?? '',
             ];
 
             $cellXml = collect($cells)
@@ -273,12 +319,51 @@ class AttendanceController extends Controller
     <Cell><Data ss:Type="String">Time In</Data></Cell>
     <Cell><Data ss:Type="String">Status</Data></Cell>
     <Cell><Data ss:Type="String">Time Out</Data></Cell>
+    <Cell><Data ss:Type="String">Total Hours</Data></Cell>
    </Row>
    {$rows}
   </Table>
  </Worksheet>
 </Workbook>
 XML;
+    }
+
+    private function shiftHoursLabel(
+        ?CarbonInterface $timeIn,
+        ?CarbonInterface $timeOut,
+        bool $nightShiftEligible = false,
+    ): ?string {
+        if (! $timeIn || ! $timeOut || $timeOut->lessThan($timeIn)) {
+            return null;
+        }
+
+        $tz = config('app.timezone');
+        $date = $timeIn->toDateString();
+
+        $minutes = $this->overlapMinutes($timeIn, $timeOut, CarbonImmutable::parse($date.' 08:00:00', $tz), CarbonImmutable::parse($date.' 12:00:00', $tz))
+                 + $this->overlapMinutes($timeIn, $timeOut, CarbonImmutable::parse($date.' 13:00:00', $tz), CarbonImmutable::parse($date.' 17:00:00', $tz));
+
+        if ($nightShiftEligible) {
+            $minutes += $this->overlapMinutes($timeIn, $timeOut, CarbonImmutable::parse($date.' 18:00:00', $tz), CarbonImmutable::parse($date.' 21:00:00', $tz));
+        }
+
+        return sprintf('%dh %02dm', intdiv($minutes, 60), $minutes % 60);
+    }
+
+    private function overlapMinutes(
+        CarbonInterface $timeIn,
+        CarbonInterface $timeOut,
+        CarbonInterface $windowStart,
+        CarbonInterface $windowEnd,
+    ): int {
+        $effectiveStart = $timeIn->greaterThan($windowStart) ? $timeIn : $windowStart;
+        $effectiveEnd   = $timeOut->lessThan($windowEnd) ? $timeOut : $windowEnd;
+
+        if ($effectiveEnd->lessThanOrEqualTo($effectiveStart)) {
+            return 0;
+        }
+
+        return (int) $effectiveStart->diffInMinutes($effectiveEnd);
     }
 
     private function escapeXml(string $value): string

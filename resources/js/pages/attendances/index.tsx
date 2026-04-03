@@ -4,14 +4,16 @@ import { CalendarCheck2, Download, Search, Trash2 } from 'lucide-react';
 import { FlashMessage } from '@/components/flash-message';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import AppLayout from '@/layouts/app-layout';
-import type {
-    AttendanceSummaryItem,
-    BreadcrumbItem,
-    Flash,
-} from '@/types';
+import type { AttendanceSummaryItem, BreadcrumbItem, Flash } from '@/types';
 
 type Props = {
     filters: {
@@ -84,9 +86,7 @@ export default function AttendancesIndex({
 
         const query = params.toString();
 
-        return query
-            ? `/attendances/export?${query}`
-            : '/attendances/export';
+        return query ? `/attendances/export?${query}` : '/attendances/export';
     }, [date, search]);
 
     useEffect(() => {
@@ -189,10 +189,10 @@ export default function AttendancesIndex({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Attendance" />
 
-            <div className="flex flex-1 flex-col gap-6 p-4 md:p-6">
+            <div className="flex flex-1 flex-col gap-6 p-4 md:p-6 dark:bg-[linear-gradient(180deg,_rgba(8,47,73,0.22)_0%,_rgba(2,6,23,0)_24%)]">
                 <FlashMessage flash={flash} />
 
-                <Card className="border-cyan-100">
+                <Card className="border-cyan-100 dark:border-cyan-500/20 dark:bg-slate-950/80">
                     <CardHeader>
                         <div className="flex flex-wrap items-center justify-between gap-4">
                             <div>
@@ -201,15 +201,15 @@ export default function AttendancesIndex({
                                     Attendance table
                                 </CardTitle>
                                 <CardDescription>
-                                    One row per date per user with separate
-                                    Time In and Time Out values plus a late
-                                    check based on office hours ({officeHours}).
+                                    One row per date per user with separate Time
+                                    In and Time Out values plus a late check
+                                    based on office hours ({officeHours}).
                                 </CardDescription>
                             </div>
 
                             <Button
                                 asChild
-                                className="bg-slate-950 text-white hover:bg-slate-800"
+                                className="bg-slate-950 text-white hover:bg-slate-800 dark:bg-cyan-500 dark:text-slate-950 dark:hover:bg-cyan-400"
                             >
                                 <a href={exportUrl}>
                                     <Download className="mr-2 h-4 w-4" />
@@ -221,7 +221,7 @@ export default function AttendancesIndex({
                     <CardContent className="space-y-5">
                         <div className="grid gap-4 lg:grid-cols-[1fr_220px_auto]">
                             <div className="relative">
-                                <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
                                 <Input
                                     value={search}
                                     onChange={(event) =>
@@ -248,27 +248,27 @@ export default function AttendancesIndex({
                         </div>
 
                         <div className="grid gap-4 md:grid-cols-3">
-                            <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                                <p className="text-sm text-slate-500">
+                            <div className="rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-900">
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
                                     Summary rows
                                 </p>
-                                <p className="text-3xl font-semibold text-slate-950">
+                                <p className="text-3xl font-semibold text-slate-950 dark:text-slate-50">
                                     {summary.recordCount}
                                 </p>
                             </div>
-                            <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                                <p className="text-sm text-slate-500">
+                            <div className="rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-900">
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
                                     Unique users
                                 </p>
-                                <p className="text-3xl font-semibold text-slate-950">
+                                <p className="text-3xl font-semibold text-slate-950 dark:text-slate-50">
                                     {summary.uniqueUsers}
                                 </p>
                             </div>
-                            <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                                <p className="text-sm text-slate-500">
+                            <div className="rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-900">
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
                                     Team size
                                 </p>
-                                <p className="text-3xl font-semibold text-slate-950">
+                                <p className="text-3xl font-semibold text-slate-950 dark:text-slate-50">
                                     {summary.teamSize}
                                 </p>
                             </div>
@@ -276,7 +276,7 @@ export default function AttendancesIndex({
                     </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="dark:border-slate-800 dark:bg-slate-950/80">
                     <CardHeader>
                         <CardTitle>Daily attendance monitor</CardTitle>
                         <CardDescription>
@@ -287,15 +287,15 @@ export default function AttendancesIndex({
                     </CardHeader>
                     <CardContent>
                         {attendances.length === 0 ? (
-                            <div className="rounded-[1.5rem] border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">
+                            <div className="rounded-[1.5rem] border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                 No attendance records found for the selected
                                 filters.
                             </div>
                         ) : (
-                            <div className="overflow-x-auto rounded-[1.5rem] border border-slate-200">
-                                <table className="min-w-full divide-y divide-slate-200 bg-white text-sm">
-                                    <thead className="bg-slate-50">
-                                        <tr className="text-left text-slate-600">
+                            <div className="overflow-x-auto rounded-[1.5rem] border border-slate-200 dark:border-slate-800">
+                                <table className="min-w-full divide-y divide-slate-200 bg-white text-sm dark:divide-slate-800 dark:bg-slate-950">
+                                    <thead className="bg-slate-50 dark:bg-slate-900">
+                                        <tr className="text-left text-slate-600 dark:text-slate-300">
                                             <th className="px-4 py-3 font-semibold">
                                                 Date
                                             </th>
@@ -317,9 +317,12 @@ export default function AttendancesIndex({
                                             <th className="px-4 py-3 font-semibold">
                                                 Time Out
                                             </th>
+                                            <th className="px-4 py-3 font-semibold">
+                                                Total Hours
+                                            </th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-200">
+                                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                                         {attendances.map((attendance) => {
                                             const values =
                                                 editingValues[attendance.key];
@@ -329,17 +332,19 @@ export default function AttendancesIndex({
                                                     key={attendance.key}
                                                     className="align-top"
                                                 >
-                                                    <td className="px-4 py-4 font-medium text-slate-900">
-                                                        {attendance.display_date}
+                                                    <td className="px-4 py-4 font-medium text-slate-900 dark:text-slate-100">
+                                                        {
+                                                            attendance.display_date
+                                                        }
                                                     </td>
-                                                    <td className="px-4 py-4 text-slate-700">
+                                                    <td className="px-4 py-4 text-slate-700 dark:text-slate-300">
                                                         {attendance.employee_code ??
                                                             `USER-${attendance.user_id}`}
                                                     </td>
-                                                    <td className="px-4 py-4 text-slate-900">
+                                                    <td className="px-4 py-4 text-slate-900 dark:text-slate-100">
                                                         {attendance.user_name}
                                                     </td>
-                                                    <td className="px-4 py-4 text-slate-700">
+                                                    <td className="px-4 py-4 text-slate-700 dark:text-slate-300">
                                                         {attendance.user_email ??
                                                             'No email'}
                                                     </td>
@@ -375,9 +380,9 @@ export default function AttendancesIndex({
                                                                             }),
                                                                         )
                                                                     }
-                                                                    className="min-w-[150px]"
+                                                                    className="w-full"
                                                                 />
-                                                                <div className="flex gap-2">
+                                                                <div className="flex flex-wrap gap-2">
                                                                     <Input
                                                                         type="time"
                                                                         value={
@@ -406,7 +411,7 @@ export default function AttendancesIndex({
                                                                                 }),
                                                                             )
                                                                         }
-                                                                        className="min-w-[120px]"
+                                                                        className="w-full"
                                                                     />
                                                                     <Button
                                                                         type="button"
@@ -429,7 +434,7 @@ export default function AttendancesIndex({
                                                                                 'time_in',
                                                                             )
                                                                         }
-                                                                        className="border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                                                                        className="border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-500/40 dark:text-rose-200 dark:hover:bg-rose-500/10 dark:hover:text-rose-100"
                                                                     >
                                                                         <Trash2 className="mr-2 h-4 w-4" />
                                                                         Delete
@@ -437,7 +442,7 @@ export default function AttendancesIndex({
                                                                 </div>
                                                             </div>
                                                         ) : (
-                                                            <span className="font-medium text-slate-900">
+                                                            <span className="font-medium text-slate-900 dark:text-slate-100">
                                                                 {attendance.time_in_display ??
                                                                     'Not recorded'}
                                                             </span>
@@ -450,18 +455,18 @@ export default function AttendancesIndex({
                                                                 className={
                                                                     attendance.attendance_status ===
                                                                     'late'
-                                                                        ? 'border-amber-200 bg-amber-50 text-amber-800'
+                                                                        ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200'
                                                                         : attendance.attendance_status ===
                                                                             'on_time'
-                                                                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                                                                          : 'border-slate-200 bg-slate-50 text-slate-600'
+                                                                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200'
+                                                                          : 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'
                                                                 }
                                                             >
                                                                 {
                                                                     attendance.status_label
                                                                 }
                                                             </Badge>
-                                                            <p className="max-w-[180px] text-xs leading-5 text-slate-500">
+                                                            <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
                                                                 {
                                                                     attendance.status_hint
                                                                 }
@@ -499,9 +504,9 @@ export default function AttendancesIndex({
                                                                             }),
                                                                         )
                                                                     }
-                                                                    className="min-w-[150px]"
+                                                                    className="w-full"
                                                                 />
-                                                                <div className="flex gap-2">
+                                                                <div className="flex flex-wrap gap-2">
                                                                     <Input
                                                                         type="time"
                                                                         value={
@@ -530,7 +535,7 @@ export default function AttendancesIndex({
                                                                                 }),
                                                                             )
                                                                         }
-                                                                        className="min-w-[120px]"
+                                                                        className="w-full"
                                                                     />
                                                                     {attendance.time_out_attendance_id ? (
                                                                         <>
@@ -555,7 +560,7 @@ export default function AttendancesIndex({
                                                                                         'time_out',
                                                                                     )
                                                                                 }
-                                                                                className="border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                                                                                className="border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-500/40 dark:text-rose-200 dark:hover:bg-rose-500/10 dark:hover:text-rose-100"
                                                                             >
                                                                                 <Trash2 className="mr-2 h-4 w-4" />
                                                                                 Delete
@@ -573,26 +578,33 @@ export default function AttendancesIndex({
                                                                                 !values?.time_out_date ||
                                                                                 !values?.time_out_time
                                                                             }
-                                                                            className="bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-emerald-300"
+                                                                            className="bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-emerald-300 dark:disabled:bg-emerald-800/40"
                                                                         >
-                                                                            Add Time Out
+                                                                            Add
+                                                                            Time
+                                                                            Out
                                                                         </Button>
                                                                     )}
                                                                 </div>
                                                                 {!attendance.time_out_attendance_id ? (
-                                                                    <p className="text-xs leading-5 text-slate-500">
-                                                                        Add a missing
-                                                                        Time Out for
-                                                                        this day.
+                                                                    <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                                                        Add a
+                                                                        missing
+                                                                        Time Out
+                                                                        for this
+                                                                        day.
                                                                     </p>
                                                                 ) : null}
                                                             </div>
                                                         ) : (
-                                                            <span className="font-medium text-slate-900">
+                                                            <span className="font-medium text-slate-900 dark:text-slate-100">
                                                                 {attendance.time_out_display ??
                                                                     'Not recorded'}
                                                             </span>
                                                         )}
+                                                    </td>
+                                                    <td className="px-4 py-4 font-medium text-slate-900 dark:text-slate-100">
+                                                        {attendance.total_hours_label ?? '—'}
                                                     </td>
                                                 </tr>
                                             );

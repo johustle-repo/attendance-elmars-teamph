@@ -30,7 +30,10 @@ type Props = {
     teamCount: number;
 };
 
-export default function AttendanceScan({ latestAttendances, teamCount }: Props) {
+export default function AttendanceScan({
+    latestAttendances,
+    teamCount,
+}: Props) {
     const { flash, auth } = usePage().props as {
         flash: Flash;
         auth: { user: User | null };
@@ -143,8 +146,10 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
             case 'SecurityError':
                 return 'The browser blocked webcam access for security reasons. Open this app on HTTPS or localhost.';
             default:
-                return error.message ||
-                    'Camera access was blocked or unavailable. Check browser permissions and try again.';
+                return (
+                    error.message ||
+                    'Camera access was blocked or unavailable. Check browser permissions and try again.'
+                );
         }
     }
 
@@ -295,14 +300,14 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
         <>
             <Head title="QR Scanner" />
 
-            <div className="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#f0fdfa_48%,_#eff6ff_100%)]">
-                <div className="mx-auto max-w-7xl px-6 py-8 lg:px-10">
+            <div className="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#f0fdfa_48%,_#eff6ff_100%)] dark:bg-[linear-gradient(180deg,_#020617_0%,_#082f49_48%,_#0f172a_100%)]">
+                <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
                     <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
                         <div>
-                            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-cyan-700">
+                            <p className="text-sm font-semibold tracking-[0.3em] text-cyan-700 uppercase dark:text-cyan-300">
                                 Attendance Scanner
                             </p>
-                            <h1 className="text-3xl font-semibold text-slate-950">
+                            <h1 className="text-3xl font-semibold text-slate-950 dark:text-slate-50">
                                 Reliable QR check-in station
                             </h1>
                         </div>
@@ -311,14 +316,14 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                             <Button
                                 asChild
                                 variant="outline"
-                                className="border-slate-300 bg-white/80 backdrop-blur hover:bg-white"
+                                className="border-slate-300 bg-white/80 backdrop-blur hover:bg-white dark:border-slate-700 dark:bg-slate-950/80 dark:hover:bg-slate-900"
                             >
                                 <Link href="/">Return to home</Link>
                             </Button>
                             {!shouldHidePublicActions && (
                                 <Button
                                     asChild
-                                    className="bg-slate-950 text-white hover:bg-slate-800"
+                                    className="bg-slate-950 text-white hover:bg-slate-800 dark:bg-cyan-500 dark:text-slate-950 dark:hover:bg-cyan-400"
                                 >
                                     <Link href="/login">Admin login</Link>
                                 </Button>
@@ -326,19 +331,21 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                         </div>
                     </div>
 
-                    <div className="grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
+                    <div className="grid gap-6 lg:grid-cols-[1.12fr_0.88fr]">
                         <div className="space-y-6">
                             <FlashMessage flash={flash} />
 
-                            <Card className="gap-0 overflow-hidden border-cyan-100 bg-white/95 py-0 shadow-lg shadow-cyan-950/5">
+                            <Card className="gap-0 overflow-hidden border-cyan-100 bg-white/95 py-0 shadow-lg shadow-cyan-950/5 dark:border-cyan-500/20 dark:bg-slate-950/85 dark:shadow-black/20">
                                 <div className="border-b border-cyan-900/10 bg-[linear-gradient(135deg,_#082f49_0%,_#155e75_52%,_#0f766e_100%)] p-6 text-white sm:p-8">
                                     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_240px] lg:items-center">
                                         <div className="space-y-4">
-                                            <div className="inline-flex w-fit rounded-full border border-white/15 bg-white/8 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/90">
-                                                Live camera / image upload / manual entry
+                                            <div className="inline-flex w-fit rounded-full border border-white/15 bg-white/8 px-4 py-2 text-[11px] font-semibold tracking-[0.24em] text-cyan-100/90 uppercase">
+                                                Live camera / image upload /
+                                                manual entry
                                             </div>
                                             <CardTitle className="max-w-xl text-3xl leading-tight sm:text-[2.1rem]">
-                                                Open the camera and scan instantly
+                                                Open the camera and scan
+                                                instantly
                                             </CardTitle>
                                             <CardDescription className="max-w-2xl text-base leading-7 text-cyan-50/85">
                                                 Use the live webcam, a QR image,
@@ -348,10 +355,10 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                                         </div>
 
                                         <div className="rounded-[1.75rem] border border-white/12 bg-white/10 px-5 py-5 text-left backdrop-blur">
-                                            <p className="text-xs uppercase tracking-[0.2em] text-cyan-100/80">
+                                            <p className="text-xs tracking-[0.2em] text-cyan-100/80 uppercase">
                                                 Registered users
                                             </p>
-                                            <p className="mt-3 text-4xl font-semibold leading-none">
+                                            <p className="mt-3 text-4xl leading-none font-semibold">
                                                 {teamCount}
                                             </p>
                                             <p className="mt-3 text-sm leading-6 text-cyan-50/75">
@@ -378,8 +385,8 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                                                     </p>
                                                     <p className="text-sm text-slate-200">
                                                         Press start to open the
-                                                        scanner and point it at a
-                                                        QR code.
+                                                        scanner and point it at
+                                                        a QR code.
                                                     </p>
                                                 </div>
                                             </div>
@@ -395,7 +402,7 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                                                         event.target.value,
                                                     )
                                                 }
-                                                className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-10 rounded-md border bg-white px-3 text-sm text-slate-900 outline-none focus-visible:ring-[3px]"
+                                                className="h-10 rounded-md border border-input bg-white px-3 text-sm text-slate-900 outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-slate-950 dark:text-slate-100 dark:[&_option]:bg-slate-950"
                                             >
                                                 {availableCameras.map(
                                                     (camera) => (
@@ -414,8 +421,12 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                                         <Button
                                             type="button"
                                             variant="outline"
-                                            onClick={() => void loadCameras(true)}
-                                            disabled={cameraState === 'starting'}
+                                            onClick={() =>
+                                                void loadCameras(true)
+                                            }
+                                            disabled={
+                                                cameraState === 'starting'
+                                            }
                                         >
                                             <RefreshCcw className="mr-2 h-4 w-4" />
                                             Refresh webcams
@@ -509,37 +520,39 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                                     </div>
 
                                     {!canUseLiveCamera && (
-                                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
                                             Live webcam scanning only works on
-                                            `https://` or `http://localhost`.
-                                            If you opened this project from a
-                                            LAN IP address, the browser will
-                                            block the camera.
+                                            `https://` or `http://localhost`. If
+                                            you opened this project from a LAN
+                                            IP address, the browser will block
+                                            the camera.
                                         </div>
                                     )}
 
                                     {detectedValue && (
-                                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100">
                                             Last detected QR: {detectedValue}
                                             <span className="ml-2 font-semibold">
-                                                ({form.data.entry_type ===
+                                                (
+                                                {form.data.entry_type ===
                                                 'time_in'
                                                     ? 'Time In'
-                                                    : 'Time Out'})
+                                                    : 'Time Out'}
+                                                )
                                             </span>
                                         </div>
                                     )}
 
                                     {cameraError && (
-                                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
                                             {cameraError}
                                         </div>
                                     )}
                                 </CardContent>
                             </Card>
 
-                            <div className="grid gap-6 lg:grid-cols-2">
-                                <Card>
+                            <div className="grid gap-6 sm:grid-cols-2">
+                                <Card className="dark:border-slate-800 dark:bg-slate-950/80">
                                     <CardHeader>
                                         <CardTitle className="flex items-center gap-2">
                                             <ImageUp className="h-5 w-5 text-cyan-700" />
@@ -549,10 +562,11 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                                             Upload a screenshot or photo of a QR
                                             code if the live camera is blocked.
                                             The selected action will still be
-                                            recorded as {form.data.entry_type ===
-                                            'time_in'
+                                            recorded as{' '}
+                                            {form.data.entry_type === 'time_in'
                                                 ? 'Time In'
-                                                : 'Time Out'}.
+                                                : 'Time Out'}
+                                            .
                                         </CardDescription>
                                     </CardHeader>
                                     <CardContent className="space-y-4">
@@ -576,17 +590,17 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                                     </CardContent>
                                 </Card>
 
-                                <Card>
+                                <Card className="dark:border-slate-800 dark:bg-slate-950/80">
                                     <CardHeader>
                                         <CardTitle className="flex items-center gap-2">
                                             <Keyboard className="h-5 w-5 text-cyan-700" />
                                             Manual QR entry
                                         </CardTitle>
                                         <CardDescription>
-                                            Paste the QR value directly for quick
-                                            testing or fallback use. The selected
-                                            action below will be saved with the
-                                            scan.
+                                            Paste the QR value directly for
+                                            quick testing or fallback use. The
+                                            selected action below will be saved
+                                            with the scan.
                                         </CardDescription>
                                     </CardHeader>
                                     <CardContent>
@@ -606,13 +620,15 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                                                     placeholder="attendance:your-qr-token"
                                                 />
                                                 <InputError
-                                                    message={form.errors.qr_code}
+                                                    message={
+                                                        form.errors.qr_code
+                                                    }
                                                 />
                                             </div>
                                             <Button
                                                 type="submit"
                                                 disabled={form.processing}
-                                                className="bg-slate-950 text-white hover:bg-slate-800"
+                                                className="bg-slate-950 text-white hover:bg-slate-800 dark:bg-cyan-500 dark:text-slate-950 dark:hover:bg-cyan-400"
                                             >
                                                 <QrCode className="mr-2 h-4 w-4" />
                                                 Record{' '}
@@ -628,14 +644,14 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                         </div>
 
                         <div className="space-y-6">
-                            <Card className="border-slate-200 bg-white/85 backdrop-blur">
+                            <Card className="border-slate-200 bg-white/85 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2">
                                         <ShieldCheck className="h-5 w-5 text-emerald-600" />
                                         Better scanning flow
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent className="space-y-3 text-sm text-slate-600">
+                                <CardContent className="space-y-3 text-sm text-slate-600 dark:text-slate-400">
                                     <p>
                                         1. Choose Time In or Time Out, then use
                                         the live camera scanner.
@@ -652,7 +668,7 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                                 </CardContent>
                             </Card>
 
-                            <Card>
+                            <Card className="dark:border-slate-800 dark:bg-slate-950/80">
                                 <CardHeader>
                                     <CardTitle>Recent check-ins</CardTitle>
                                     <CardDescription>
@@ -661,35 +677,41 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
                                 </CardHeader>
                                 <CardContent className="space-y-3">
                                     {latestAttendances.length === 0 ? (
-                                        <p className="rounded-2xl border border-dashed border-slate-200 p-6 text-sm text-slate-500">
+                                        <p className="rounded-2xl border border-dashed border-slate-200 p-6 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                             No attendance logs yet.
                                         </p>
                                     ) : (
                                         latestAttendances.map((attendance) => (
                                             <div
                                                 key={attendance.id}
-                                                className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3"
+                                                className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/80"
                                             >
                                                 <div className="flex items-center justify-between gap-4">
                                                     <div>
-                                                        <p className="font-medium text-slate-900">
-                                                            {attendance.user_name}
+                                                        <p className="font-medium text-slate-900 dark:text-slate-100">
+                                                            {
+                                                                attendance.user_name
+                                                            }
                                                         </p>
-                                                        <p className="text-sm text-slate-500">
+                                                        <p className="text-sm text-slate-500 dark:text-slate-400">
                                                             {attendance.employee_code ??
                                                                 'No employee code'}
                                                         </p>
-                                                        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700">
+                                                        <p className="mt-2 text-xs font-semibold tracking-[0.18em] text-cyan-700 uppercase">
                                                             {attendance.entry_type_label ??
                                                                 'Attendance'}
                                                         </p>
                                                     </div>
-                                                    <div className="text-right text-sm text-slate-500">
+                                                    <div className="text-right text-sm text-slate-500 dark:text-slate-400">
                                                         <p>
-                                                            {attendance.recorded_date}
+                                                            {
+                                                                attendance.recorded_date
+                                                            }
                                                         </p>
                                                         <p>
-                                                            {attendance.recorded_time}
+                                                            {
+                                                                attendance.recorded_time
+                                                            }
                                                         </p>
                                                     </div>
                                                 </div>
@@ -705,4 +727,3 @@ export default function AttendanceScan({ latestAttendances, teamCount }: Props) 
         </>
     );
 }
-

@@ -1,0 +1,9 @@
+;Auto-generated Diamond Directive File. Can be deleted without harm.
+.Set CabinetNameTemplate=c:\xampp\htdocs\duscaff-attendance\tmp\iexpress-test\~hello-installer.CAB
+.Set CompressionType=LZX
+.Set CompressionLevel=7
+.Set InfFileName=c:\xampp\htdocs\duscaff-attendance\tmp\iexpress-test\~hello-installer_LAYOUT.INF
+.Set RptFileName=c:\xampp\htdocs\duscaff-attendance\tmp\iexpress-test\~hello-installer.RPT
+.Set MaxDiskSize=CDROM
+.Set ReservePerCabinetSize=0
+.Set InfCabinetLineFormat=*cab#*=Application Source Media,*cabfile*,0

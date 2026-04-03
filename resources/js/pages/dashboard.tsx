@@ -129,11 +129,11 @@ export default function Dashboard({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Dashboard" />
 
-            <div className="flex flex-1 flex-col gap-6 bg-[linear-gradient(180deg,_rgba(236,254,255,0.45)_0%,_rgba(248,250,252,0)_26%)] p-4 md:p-6">
+            <div className="flex flex-1 flex-col gap-6 bg-[linear-gradient(180deg,_rgba(236,254,255,0.45)_0%,_rgba(248,250,252,0)_26%)] p-4 md:p-6 dark:bg-[linear-gradient(180deg,_rgba(8,47,73,0.34)_0%,_rgba(2,6,23,0)_28%)]">
                 <FlashMessage flash={flash} />
 
-                <section className="overflow-hidden rounded-[2rem] border border-cyan-100 bg-[linear-gradient(135deg,_#082f49_0%,_#0f766e_48%,_#14b8a6_100%)] p-8 text-white shadow-xl shadow-cyan-950/10">
-                    <div className="grid gap-8 xl:grid-cols-[1.08fr_0.92fr]">
+                <section className="overflow-hidden rounded-[2rem] border border-cyan-100 bg-[linear-gradient(135deg,_#082f49_0%,_#0f766e_48%,_#14b8a6_100%)] p-5 text-white shadow-xl shadow-cyan-950/10 sm:p-8 dark:border-cyan-500/20 dark:shadow-black/20">
+                    <div className="grid gap-8 lg:grid-cols-[1.08fr_0.92fr]">
                         <div className="space-y-6">
                             <div className="flex flex-wrap items-center gap-3">
                                 <Badge className="bg-white/15 text-white">
@@ -146,8 +146,9 @@ export default function Dashboard({
                             </div>
 
                             <div className="space-y-4">
-                                <h1 className="max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">
-                                    Welcome back, {auth.user.name.split(' ')[0]}.
+                                <h1 className="max-w-3xl text-3xl font-semibold tracking-tight sm:text-4xl md:text-5xl">
+                                    Welcome back, {auth.user.name.split(' ')[0]}
+                                    .
                                 </h1>
                                 <p className="max-w-2xl text-base text-cyan-50/90 md:text-lg">
                                     {canManageUsers
@@ -158,20 +159,23 @@ export default function Dashboard({
 
                             <div className="grid gap-4 sm:grid-cols-2">
                                 <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-5 backdrop-blur">
-                                    <p className="text-sm uppercase tracking-[0.2em] text-cyan-100/80">
+                                    <p className="text-sm tracking-[0.2em] text-cyan-100/80 uppercase">
                                         Firebase sync
                                     </p>
                                     <div className="mt-3 flex items-center justify-between">
                                         <div>
                                             <p className="text-lg font-semibold">
-                                                {(canManageUsers
-                                                    ? stats?.firebaseConfigured
-                                                    : memberSummary?.firebaseConfigured)
+                                                {(
+                                                    canManageUsers
+                                                        ? stats?.firebaseConfigured
+                                                        : memberSummary?.firebaseConfigured
+                                                )
                                                     ? 'Connected'
                                                     : 'Pending setup'}
                                             </p>
                                             <p className="text-sm text-cyan-50/75">
-                                                Online backup for users and attendance
+                                                Online backup for users and
+                                                attendance
                                             </p>
                                         </div>
                                         <Database className="h-8 w-8 text-cyan-100" />
@@ -179,7 +183,7 @@ export default function Dashboard({
                                 </div>
 
                                 <div className="rounded-[1.5rem] border border-white/15 bg-black/10 p-5 backdrop-blur">
-                                    <p className="text-sm uppercase tracking-[0.2em] text-cyan-100/80">
+                                    <p className="text-sm tracking-[0.2em] text-cyan-100/80 uppercase">
                                         Quick action
                                     </p>
                                     <div className="mt-3 flex items-center justify-between gap-4">
@@ -188,7 +192,8 @@ export default function Dashboard({
                                                 Ready to scan
                                             </p>
                                             <p className="text-sm text-cyan-50/75">
-                                                Open the camera station or download your QR card
+                                                Open the camera station or
+                                                download your QR card
                                             </p>
                                         </div>
                                         <QrCode className="h-8 w-8 text-cyan-100" />
@@ -248,25 +253,33 @@ export default function Dashboard({
                         <QrIdentityCard
                             name={auth.user.name}
                             subtitle={
-                                auth.user.employee_code ||
-                                auth.user.email ||
-                                roleLabel
+                                auth.user.sub_name
+                                    ? `${auth.user.sub_name} - ${
+                                          auth.user.employee_code ||
+                                          auth.user.email ||
+                                          roleLabel
+                                      }`
+                                    : auth.user.employee_code ||
+                                      auth.user.email ||
+                                      roleLabel
                             }
                             value={myQrValue}
-                            className="border-white/10 bg-white/90 shadow-none"
+                            className="border-white/10 bg-white/90 shadow-none dark:bg-slate-950/80"
                         />
                     </div>
                 </section>
 
-                <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <section className="grid grid-cols-2 gap-4 md:grid-cols-2 xl:grid-cols-4">
                     {statCards.map((card) => (
                         <Card
                             key={card.label}
-                            className="border-slate-200/80 bg-white/85 shadow-sm backdrop-blur"
+                            className="border-slate-200/80 bg-white/85 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/80"
                         >
                             <CardHeader className="flex flex-row items-start justify-between space-y-0">
                                 <div>
-                                    <CardDescription>{card.label}</CardDescription>
+                                    <CardDescription>
+                                        {card.label}
+                                    </CardDescription>
                                     <CardTitle className="mt-2 text-3xl">
                                         {card.value}
                                     </CardTitle>
@@ -281,8 +294,8 @@ export default function Dashboard({
                     ))}
                 </section>
 
-                <section className="grid gap-6 xl:grid-cols-[1.06fr_0.94fr]">
-                    <Card className="bg-white/90 backdrop-blur">
+                <section className="grid gap-6 lg:grid-cols-[1.06fr_0.94fr]">
+                    <Card className="bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
                         <CardHeader>
                             <CardTitle>Recent attendance</CardTitle>
                             <CardDescription>
@@ -292,7 +305,7 @@ export default function Dashboard({
                         </CardHeader>
                         <CardContent className="space-y-3">
                             {recentAttendances.length === 0 ? (
-                                <p className="rounded-2xl border border-dashed border-slate-200 p-6 text-sm text-slate-500">
+                                <p className="rounded-2xl border border-dashed border-slate-200 p-6 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                     No attendance records yet. Open the scanner
                                     to start recording check-ins.
                                 </p>
@@ -300,17 +313,17 @@ export default function Dashboard({
                                 recentAttendances.map((attendance) => (
                                     <div
                                         key={attendance.id}
-                                        className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3"
+                                        className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/80"
                                     >
                                         <div>
-                                            <p className="font-medium text-slate-900">
+                                            <p className="font-medium text-slate-900 dark:text-slate-100">
                                                 {attendance.user_name}
                                             </p>
-                                            <p className="text-sm text-slate-500">
+                                            <p className="text-sm text-slate-500 dark:text-slate-400">
                                                 {attendance.employee_code ??
                                                     'No employee code'}
                                             </p>
-                                            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700">
+                                            <p className="mt-2 text-xs font-semibold tracking-[0.18em] text-cyan-700 uppercase">
                                                 {attendance.entry_type_label ??
                                                     'Attendance'}
                                             </p>
@@ -320,20 +333,20 @@ export default function Dashboard({
                                                     className={
                                                         attendance.attendance_status ===
                                                         'late'
-                                                            ? 'mt-2 border-amber-200 bg-amber-50 text-amber-800'
-                                                            : 'mt-2 border-emerald-200 bg-emerald-50 text-emerald-800'
+                                                            ? 'mt-2 border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200'
+                                                            : 'mt-2 border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200'
                                                     }
                                                 >
                                                     {attendance.status_label}
                                                 </Badge>
                                             )}
                                             {attendance.status_hint && (
-                                                <p className="mt-2 text-xs text-slate-500">
+                                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                                                     {attendance.status_hint}
                                                 </p>
                                             )}
                                         </div>
-                                        <div className="text-right text-sm text-slate-500">
+                                        <div className="text-right text-sm text-slate-500 dark:text-slate-400">
                                             <p>{attendance.recorded_date}</p>
                                             <p>{attendance.recorded_time}</p>
                                         </div>
@@ -343,7 +356,7 @@ export default function Dashboard({
                         </CardContent>
                     </Card>
 
-                    <Card className="bg-white/90 backdrop-blur">
+                    <Card className="bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
                         <CardHeader>
                             <CardTitle>Workspace guidance</CardTitle>
                             <CardDescription>
@@ -351,31 +364,31 @@ export default function Dashboard({
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                                <p className="font-medium text-slate-900">
+                            <div className="rounded-2xl bg-slate-50 px-4 py-4 dark:bg-slate-900">
+                                <p className="font-medium text-slate-900 dark:text-slate-100">
                                     1. Start with the QR scanner
                                 </p>
-                                <p className="mt-1 text-sm text-slate-500">
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                     The scanner now supports live camera access,
                                     QR image uploads, and manual fallback entry.
                                 </p>
                             </div>
 
-                            <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                                <p className="font-medium text-slate-900">
+                            <div className="rounded-2xl bg-slate-50 px-4 py-4 dark:bg-slate-900">
+                                <p className="font-medium text-slate-900 dark:text-slate-100">
                                     2. Share downloadable QR cards
                                 </p>
-                                <p className="mt-1 text-sm text-slate-500">
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                     Each user now has a visible QR preview with
                                     a downloadable named QR card.
                                 </p>
                             </div>
 
-                            <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                                <p className="font-medium text-slate-900">
+                            <div className="rounded-2xl bg-slate-50 px-4 py-4 dark:bg-slate-900">
+                                <p className="font-medium text-slate-900 dark:text-slate-100">
                                     3. Keep records export-ready
                                 </p>
-                                <p className="mt-1 text-sm text-slate-500">
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                     Admins can review attendance logs and export
                                     them in Excel format whenever needed.
                                 </p>

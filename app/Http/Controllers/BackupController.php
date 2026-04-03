@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attendance;
+use App\Models\AuditLog;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Date;
@@ -15,6 +17,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class BackupController extends Controller
 {
+    private const PRIORITY_BACKUP_USER_NAME = 'Elmar B. Noche';
+
+    private const EXCEL_WORKSHEET_NAME_LIMIT = 31;
+
     public function index(Request $request): Response
     {
         abort_unless($request->user()->canManageUsers(), 403);
@@ -37,6 +43,9 @@ class BackupController extends Controller
                     ->count(),
                 'attendanceDayCount' => collect($dataset['users'])->sum('attendance_day_count'),
                 'attendanceLogCount' => collect($dataset['users'])->sum('attendance_log_count'),
+                'totalWorkHours' => $this->formatWorkedMinutes(
+                    collect($dataset['users'])->sum('total_work_minutes'),
+                ),
             ],
             'backupUsers' => $dataset['users'],
         ]);
@@ -50,6 +59,18 @@ class BackupController extends Controller
         $type = $this->validatedExportType($request);
         $dataset = $this->buildDataset($year, $month);
         $generatedAt = Date::now(config('app.timezone'))->toIso8601String();
+
+        AuditLog::record(
+            request: $request,
+            action: 'backup.export',
+            resourceType: 'Backup',
+            newValues: [
+                'year' => $year,
+                'month' => $month,
+                'format' => $type,
+                'generated_at' => $generatedAt,
+            ],
+        );
 
         return match ($type) {
             'excel' => $this->downloadExcelBackup($year, $month, $generatedAt, $dataset),
@@ -157,9 +178,10 @@ class BackupController extends Controller
                     ->whereBetween('recorded_at', [$startOfMonth, $endOfMonth])
                     ->orderBy('recorded_at'),
             ])
-            ->orderByRaw("case when role = 'admin' then 0 else 1 end")
-            ->orderBy('name')
-            ->get();
+            ->get()
+            ->filter(fn (User $user): bool => $user->isActive() || $user->attendances->isNotEmpty())
+            ->sort(fn (User $left, User $right): int => $this->compareBackupUsers($left, $right))
+            ->values();
 
         return [
             'period' => [
@@ -181,11 +203,15 @@ class BackupController extends Controller
      */
     private function mapBackupUser(User $user): array
     {
-        $attendanceDays = $this->buildAttendanceDays($user->attendances);
+        $attendanceDays = $this->buildAttendanceDays($user->attendances, (bool) $user->night_shift_eligible);
+        $totalWorkMinutes = (int) collect($attendanceDays)->sum(
+            fn (array $day): int => (int) ($day['total_work_minutes'] ?? 0),
+        );
 
         return [
             'id' => $user->id,
             'name' => $user->name,
+            'sub_name' => $user->sub_name,
             'email' => $user->email,
             'role' => $user->role?->value,
             'role_label' => $user->role?->label(),
@@ -197,6 +223,8 @@ class BackupController extends Controller
             'created_at' => optional($user->created_at)->toIso8601String(),
             'attendance_day_count' => count($attendanceDays),
             'attendance_log_count' => $user->attendances->count(),
+            'total_work_minutes' => $totalWorkMinutes,
+            'total_work_hours' => $this->formatWorkedMinutes($totalWorkMinutes),
             'attendance_days' => $attendanceDays,
         ];
     }
@@ -205,11 +233,11 @@ class BackupController extends Controller
      * @param  Collection<int, Attendance>  $attendances
      * @return array<int, array<string, mixed>>
      */
-    private function buildAttendanceDays(Collection $attendances): array
+    private function buildAttendanceDays(Collection $attendances, bool $nightShiftEligible = false): array
     {
         return $attendances
             ->groupBy(fn (Attendance $attendance): string => (string) optional($attendance->recorded_at)->toDateString())
-            ->map(function (Collection $entries): array {
+            ->map(function (Collection $entries) use ($nightShiftEligible): array {
                 /** @var Collection<int, Attendance> $entries */
                 $sortedEntries = $entries->sortBy('recorded_at')->values();
                 /** @var Attendance $anchor */
@@ -219,12 +247,21 @@ class BackupController extends Controller
                 $timeOut = $sortedEntries
                     ->reverse()
                     ->first(fn (Attendance $attendance): bool => $attendance->entry_type === 'time_out');
+                $totalWorkMinutes = $this->shiftWindowMinutes(
+                    $timeIn?->recorded_at,
+                    $timeOut?->recorded_at,
+                    $nightShiftEligible,
+                );
 
                 return [
                     'date' => optional($anchor->recorded_at)->toDateString(),
                     'display_date' => optional($anchor->recorded_at)->format('M d, Y'),
                     'time_in' => optional($timeIn?->recorded_at)->format('h:i A'),
                     'time_out' => optional($timeOut?->recorded_at)->format('h:i A'),
+                    'total_work_minutes' => $totalWorkMinutes,
+                    'total_work_hours' => $totalWorkMinutes === null
+                        ? null
+                        : $this->formatWorkedMinutes($totalWorkMinutes),
                     'logs' => $sortedEntries->map(fn (Attendance $attendance): array => [
                         'id' => $attendance->id,
                         'entry_type' => $attendance->entry_type,
@@ -240,6 +277,94 @@ class BackupController extends Controller
             ->sortByDesc('date')
             ->values()
             ->all();
+    }
+
+    /**
+     * Billable minutes clipped to shift windows (lunch 12–1 PM excluded).
+     * Morning: 08:00–12:00. Afternoon: 13:00–17:00. Night (eligible only): 18:00–21:00.
+     */
+    private function shiftWindowMinutes(
+        ?CarbonInterface $timeIn,
+        ?CarbonInterface $timeOut,
+        bool $nightShiftEligible = false,
+    ): ?int {
+        if (! $timeIn || ! $timeOut || $timeOut->lessThan($timeIn)) {
+            return null;
+        }
+
+        $tz   = config('app.timezone');
+        $date = $timeIn->toDateString();
+
+        $minutes = $this->overlapMinutes($timeIn, $timeOut, CarbonImmutable::parse($date.' 08:00:00', $tz), CarbonImmutable::parse($date.' 12:00:00', $tz))
+                 + $this->overlapMinutes($timeIn, $timeOut, CarbonImmutable::parse($date.' 13:00:00', $tz), CarbonImmutable::parse($date.' 17:00:00', $tz));
+
+        if ($nightShiftEligible) {
+            $minutes += $this->overlapMinutes($timeIn, $timeOut, CarbonImmutable::parse($date.' 18:00:00', $tz), CarbonImmutable::parse($date.' 21:00:00', $tz));
+        }
+
+        return $minutes;
+    }
+
+    private function overlapMinutes(
+        CarbonInterface $timeIn,
+        CarbonInterface $timeOut,
+        CarbonInterface $windowStart,
+        CarbonInterface $windowEnd,
+    ): int {
+        $effectiveStart = $timeIn->greaterThan($windowStart) ? $timeIn : $windowStart;
+        $effectiveEnd   = $timeOut->lessThan($windowEnd) ? $timeOut : $windowEnd;
+
+        if ($effectiveEnd->lessThanOrEqualTo($effectiveStart)) {
+            return 0;
+        }
+
+        return (int) $effectiveStart->diffInMinutes($effectiveEnd);
+    }
+
+    private function formatWorkedMinutes(int $minutes): string
+    {
+        $hours = intdiv($minutes, 60);
+        $remainingMinutes = $minutes % 60;
+
+        return sprintf('%dh %02dm', $hours, $remainingMinutes);
+    }
+
+    private function compareBackupUsers(User $left, User $right): int
+    {
+        $priorityComparison = $this->backupPriorityRank($left) <=> $this->backupPriorityRank($right);
+
+        if ($priorityComparison !== 0) {
+            return $priorityComparison;
+        }
+
+        $roleComparison = $this->backupRoleRank($left) <=> $this->backupRoleRank($right);
+
+        if ($roleComparison !== 0) {
+            return $roleComparison;
+        }
+
+        $nameComparison = strcasecmp((string) $left->name, (string) $right->name);
+
+        if ($nameComparison !== 0) {
+            return $nameComparison;
+        }
+
+        return $left->id <=> $right->id;
+    }
+
+    private function backupPriorityRank(User $user): int
+    {
+        return $this->isPriorityBackupUser($user->name) ? 0 : 1;
+    }
+
+    private function backupRoleRank(User $user): int
+    {
+        return ($user->role?->value ?? null) === 'admin' ? 0 : 1;
+    }
+
+    private function isPriorityBackupUser(?string $name): bool
+    {
+        return strcasecmp(trim((string) $name), self::PRIORITY_BACKUP_USER_NAME) === 0;
     }
 
     /**
@@ -281,72 +406,32 @@ class BackupController extends Controller
      */
     private function buildBackupExcelXml(string $generatedAt, array $dataset): string
     {
-        $rows = collect($dataset['users'])
-            ->flatMap(function (array $user): Collection {
-                if (empty($user['attendance_days'])) {
-                    return collect([[
-                        'name' => $user['name'],
-                        'email' => $user['email'],
-                        'role' => $user['role_label'] ?? $user['role'],
-                        'employee_code' => $user['employee_code'] ?? '',
-                        'position' => $user['position'] ?? '',
-                        'status' => $user['status_label'] ?? $user['status'] ?? '',
-                        'date' => '',
-                        'time_in' => '',
-                        'time_out' => '',
-                        'logs' => '',
-                    ]]);
-                }
+        $periodLabel = (string) ($dataset['period']['label'] ?? '');
+        $generatedLabel = CarbonImmutable::parse($generatedAt)->format('M d, Y h:i A');
+        $users = collect($dataset['users'])
+            ->filter(fn (array $user): bool => ($user['role'] ?? null) === 'member')
+            ->values();
 
-                return collect($user['attendance_days'])->map(
-                    fn (array $day): array => [
-                        'name' => $user['name'],
-                        'email' => $user['email'],
-                        'role' => $user['role_label'] ?? $user['role'],
-                        'employee_code' => $user['employee_code'] ?? '',
-                        'position' => $user['position'] ?? '',
-                        'status' => $user['status_label'] ?? $user['status'] ?? '',
-                        'date' => $day['display_date'] ?? '',
-                        'time_in' => $day['time_in'] ?? '',
-                        'time_out' => $day['time_out'] ?? '',
-                        'logs' => collect($day['logs'] ?? [])
-                            ->map(
-                                fn (array $log): string => ($log['entry_type_label'] ?? 'Attendance')
-                                    .' - '
-                                    .($log['recorded_time'] ?? '')
-                            )
-                            ->implode(', '),
-                    ],
-                );
-            })
-            ->map(function (array $row): string {
-                $cells = [
-                    $row['name'],
-                    $row['email'],
-                    $row['role'],
-                    $row['employee_code'],
-                    $row['position'],
-                    $row['status'],
-                    $row['date'],
-                    $row['time_in'],
-                    $row['time_out'],
-                    $row['logs'],
-                ];
+        if ($users->isEmpty()) {
+            $worksheets = $this->buildEmptyBackupExcelWorksheet($periodLabel, $generatedLabel);
+        } else {
+            $worksheetNames = $this->buildUniqueExcelWorksheetNames(
+                $users
+                    ->map(fn (array $user, int $index): string => (string) ($user['name'] ?? 'User '.($index + 1)))
+                    ->all(),
+            );
 
-                $cellXml = collect($cells)
-                    ->map(
-                        fn (string $value): string => '<Cell><Data ss:Type="String">'
-                            .$this->escapeXml($value)
-                            .'</Data></Cell>',
-                    )
-                    ->implode('');
-
-                return '<Row>'.$cellXml.'</Row>';
-            })
-            ->implode('');
-
-        $periodLabel = $this->escapeXml((string) ($dataset['period']['label'] ?? ''));
-        $generatedLabel = $this->escapeXml(CarbonImmutable::parse($generatedAt)->format('M d, Y h:i A'));
+            $worksheets = $users
+                ->map(
+                    fn (array $user, int $index): string => $this->buildBackupExcelWorksheet(
+                        $worksheetNames[$index],
+                        $periodLabel,
+                        $generatedLabel,
+                        $user,
+                    ),
+                )
+                ->implode("\n");
+        }
 
         return <<<XML
 <?xml version="1.0"?>
@@ -355,43 +440,177 @@ class BackupController extends Controller
  xmlns:o="urn:schemas-microsoft-com:office:office"
  xmlns:x="urn:schemas-microsoft-com:office:excel"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
- <Worksheet ss:Name="Backup">
-  <Table>
-   <Row>
-    <Cell><Data ss:Type="String">Elmar's Team PH Backup</Data></Cell>
-   </Row>
-   <Row>
-    <Cell><Data ss:Type="String">Period: {$periodLabel}</Data></Cell>
-   </Row>
-   <Row>
-    <Cell><Data ss:Type="String">Generated at: {$generatedLabel}</Data></Cell>
-   </Row>
-   <Row></Row>
-   <Row>
-    <Cell><Data ss:Type="String">Name</Data></Cell>
-    <Cell><Data ss:Type="String">Email</Data></Cell>
-    <Cell><Data ss:Type="String">Role</Data></Cell>
-    <Cell><Data ss:Type="String">Employee Code</Data></Cell>
-    <Cell><Data ss:Type="String">Position</Data></Cell>
-    <Cell><Data ss:Type="String">Status</Data></Cell>
-    <Cell><Data ss:Type="String">Date</Data></Cell>
-    <Cell><Data ss:Type="String">Time In</Data></Cell>
-    <Cell><Data ss:Type="String">Time Out</Data></Cell>
-    <Cell><Data ss:Type="String">Logs</Data></Cell>
-   </Row>
-   {$rows}
-   <Row></Row>
-   <Row>
-    <Cell><Data ss:Type="String">Approved and verified by:</Data></Cell>
-   </Row>
-   <Row></Row>
-   <Row>
-    <Cell><Data ss:Type="String">Elmar B. Noche</Data></Cell>
-   </Row>
-  </Table>
- </Worksheet>
+ {$worksheets}
 </Workbook>
 XML;
+    }
+
+    /**
+     * @param  array<string, mixed>  $user
+     */
+    private function buildBackupExcelWorksheet(
+        string $sheetName,
+        string $periodLabel,
+        string $generatedLabel,
+        array $user,
+    ): string {
+        $attendanceRows = collect($user['attendance_days'] ?? [])
+            ->map(
+                fn (array $day): array => [
+                    $day['display_date'] ?? '',
+                    $day['time_in'] ?? 'Not recorded',
+                    $day['time_out'] ?? 'Not recorded',
+                    $day['total_work_hours'] ?? 'Not recorded',
+                    collect($day['logs'] ?? [])
+                        ->map(
+                            fn (array $log): string => ($log['entry_type_label'] ?? 'Attendance')
+                                .' - '
+                                .($log['recorded_time'] ?? ''),
+                        )
+                        ->implode(', '),
+                ],
+            )
+            ->values();
+
+        if ($attendanceRows->isEmpty()) {
+            $attendanceRows = collect([[
+                '-',
+                'Not recorded',
+                'Not recorded',
+                'Not recorded',
+                'No attendance records for this member in the selected period.',
+            ]]);
+        }
+
+        $rows = collect([
+            ['Elmar\'s Team PH Backup'],
+            ['Period', $periodLabel],
+            ['Generated at', $generatedLabel],
+            [],
+            ['Name', (string) ($user['name'] ?? '')],
+            ['Sub Name', (string) ($user['sub_name'] ?? 'Not set')],
+            ['Email', (string) ($user['email'] ?? '')],
+            ['Role', (string) ($user['role_label'] ?? $user['role'] ?? '')],
+            ['Employee Code', (string) ($user['employee_code'] ?? 'Not set')],
+            ['Position', (string) ($user['position'] ?? 'Not set')],
+            ['Status', (string) ($user['status_label'] ?? $user['status'] ?? 'Active')],
+            ['Attendance Days', (string) ($user['attendance_day_count'] ?? 0)],
+            ['Attendance Logs', (string) ($user['attendance_log_count'] ?? 0)],
+            ['Member Total Hours', (string) ($user['total_work_hours'] ?? $this->formatWorkedMinutes(0))],
+            [],
+            ['Date', 'Time In', 'Time Out', 'Daily Total Hours', 'Logs'],
+        ])
+            ->concat($attendanceRows)
+            ->concat([
+                [],
+                ['Approved and verified by:'],
+                [],
+                [self::PRIORITY_BACKUP_USER_NAME],
+            ])
+            ->map(fn (array $cells): string => $this->buildBackupExcelRow($cells))
+            ->implode("\n");
+
+        $escapedSheetName = $this->escapeXml($sheetName);
+
+        return <<<XML
+ <Worksheet ss:Name="{$escapedSheetName}">
+  <Table>
+{$rows}
+  </Table>
+ </Worksheet>
+XML;
+    }
+
+    private function buildEmptyBackupExcelWorksheet(string $periodLabel, string $generatedLabel): string
+    {
+        $rows = collect([
+            ['Elmar\'s Team PH Backup'],
+            ['Period', $periodLabel],
+            ['Generated at', $generatedLabel],
+            [],
+            ['No visible users were found for this backup export.'],
+            [],
+            ['Approved and verified by:'],
+            [],
+            [self::PRIORITY_BACKUP_USER_NAME],
+        ])
+            ->map(fn (array $cells): string => $this->buildBackupExcelRow($cells))
+            ->implode("\n");
+
+        return <<<XML
+ <Worksheet ss:Name="Backup Summary">
+  <Table>
+{$rows}
+  </Table>
+ </Worksheet>
+XML;
+    }
+
+    /**
+     * @param  array<int, string>  $worksheetNames
+     * @return array<int, string>
+     */
+    private function buildUniqueExcelWorksheetNames(array $worksheetNames): array
+    {
+        $usedNames = [];
+
+        return collect($worksheetNames)
+            ->values()
+            ->map(function (string $worksheetName, int $index) use (&$usedNames): string {
+                $baseName = $this->sanitizeExcelWorksheetName(
+                    $worksheetName !== '' ? $worksheetName : 'User '.($index + 1),
+                );
+                $candidate = $baseName;
+                $suffix = 2;
+
+                while (in_array($candidate, $usedNames, true)) {
+                    $suffixLabel = ' ('.$suffix.')';
+                    $candidate = mb_substr(
+                        $baseName,
+                        0,
+                        self::EXCEL_WORKSHEET_NAME_LIMIT - strlen($suffixLabel),
+                    ).$suffixLabel;
+                    $suffix++;
+                }
+
+                $usedNames[] = $candidate;
+
+                return $candidate;
+            })
+            ->all();
+    }
+
+    private function sanitizeExcelWorksheetName(string $worksheetName): string
+    {
+        $sanitized = preg_replace('/[:\\\\\\/\\?\\*\\[\\]]/', ' ', $worksheetName) ?? $worksheetName;
+        $sanitized = preg_replace('/\s+/', ' ', trim($sanitized)) ?? trim($sanitized);
+
+        if ($sanitized === '') {
+            return 'User';
+        }
+
+        return mb_substr($sanitized, 0, self::EXCEL_WORKSHEET_NAME_LIMIT);
+    }
+
+    /**
+     * @param  array<int, string>  $cells
+     */
+    private function buildBackupExcelRow(array $cells): string
+    {
+        if ($cells === []) {
+            return '   <Row></Row>';
+        }
+
+        $cellXml = collect($cells)
+            ->map(fn (string $value): string => $this->buildBackupExcelCell($value))
+            ->implode('');
+
+        return '   <Row>'.$cellXml.'</Row>';
+    }
+
+    private function buildBackupExcelCell(string $value): string
+    {
+        return '<Cell><Data ss:Type="String">'.$this->escapeXml($value).'</Data></Cell>';
     }
 
     private function escapeXml(string $value): string
@@ -502,6 +721,7 @@ XML;
                 'date' => $day['display_date'] ?? '-',
                 'time_in' => $day['time_in'] ?? 'Not recorded',
                 'time_out' => $day['time_out'] ?? 'Not recorded',
+                'hours' => $day['total_work_hours'] ?? 'Not recorded',
                 'status' => $this->attendanceStatusLabel($day),
             ])
             ->values()
@@ -512,6 +732,7 @@ XML;
                 'date' => '-',
                 'time_in' => 'Not recorded',
                 'time_out' => 'Not recorded',
+                'hours' => 'Not recorded',
                 'status' => 'No attendance records for this month',
             ];
         }
@@ -559,6 +780,16 @@ XML;
             'F1',
             [71, 85, 105],
         );
+        if (filled($user['sub_name'] ?? null)) {
+            $stream .= $this->pdfText(
+                46,
+                566,
+                $this->fitPdfText('Sub Name: '.(string) $user['sub_name'], 308, 8.5, 'F1'),
+                8.5,
+                'F1',
+                [8, 145, 178],
+            );
+        }
         $stream .= $this->buildPdfTextPair(
             46,
             556,
@@ -613,7 +844,14 @@ XML;
             [236, 253, 245],
             [22, 101, 52],
         );
-        $stream .= $this->buildPdfTextPair(46, 526, 200, 'Latest Attendance', $latestAttendanceDate);
+        $stream .= $this->buildPdfTextPair(46, 526, 152, 'Latest Attendance', $latestAttendanceDate);
+        $stream .= $this->buildPdfTextPair(
+            214,
+            526,
+            138,
+            'Total Hours',
+            (string) ($user['total_work_hours'] ?? $this->formatWorkedMinutes(0)),
+        );
         $stream .= $this->pdfText(30, 486, 'Attendance Log Summary', 11.5, 'F2', [30, 41, 59]);
         $stream .= $this->pdfText(
             30,
@@ -627,8 +865,8 @@ XML;
         $stream .= $this->buildUserPdfTable(
             30,
             454,
-            [120, 86, 86, 260],
-            ['Date', 'Time In', 'Time Out', 'Status'],
+            [108, 78, 78, 82, 206],
+            ['Date', 'Time In', 'Time Out', 'Total Hours', 'Status'],
             $rows,
         );
 
@@ -776,7 +1014,7 @@ XML;
         $stream .= $this->buildPdfMetadataCard(278, 444, 220, 40, 'Generated At', $generatedLabel);
         $stream .= $this->pdfText(46, 394, 'Approved and verified by:', 10, 'F2', [47, 72, 88]);
         $stream .= $this->pdfLine(46, 342, 286, 342, [148, 163, 184], 1.0);
-        $stream .= $this->pdfText(46, 320, 'Elmar B. Noche', 16, 'F2', [17, 24, 39]);
+        $stream .= $this->pdfText(46, 320, self::PRIORITY_BACKUP_USER_NAME, 16, 'F2', [17, 24, 39]);
         $stream .= $this->pdfText(46, 302, 'Attendance Administrator', 10, 'F1', [100, 116, 139]);
         $stream .= $this->pdfText(46, 284, 'Signature', 8, 'F1', [100, 116, 139]);
         $stream .= $this->pdfText(
@@ -903,12 +1141,14 @@ XML;
                 $row['date'] ?? '',
                 $row['time_in'] ?? '',
                 $row['time_out'] ?? '',
+                $row['hours'] ?? '',
                 $row['status'] ?? '',
             ];
 
             foreach ($values as $index => $value) {
-                $font = $index === 3 ? 'F2' : 'F1';
-                $color = $index === 3 ? $this->attendanceStatusColor($value) : $textColor;
+                $isStatusColumn = $index === 4;
+                $font = $isStatusColumn ? 'F2' : 'F1';
+                $color = $isStatusColumn ? $this->attendanceStatusColor($value) : $textColor;
                 $stream .= $this->pdfText(
                     $cellX + 6,
                     $textY,

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where iexpress.exe)",
+      "Bash(where php.exe)",
+      "Bash(php -r \"echo PHP_VERSION;\")",
+      "Bash(powershell -Command \"Test-Path ''C:\\\\php-8.5.2\\\\php.ini''; Test-Path ''C:\\\\php-8.5.2\\\\ext''; Test-Path ''C:\\\\xampp\\\\php\\\\php.ini''; Test-Path ''C:\\\\xampp\\\\php\\\\ext''\")",
+      "Bash(composer run:*)"
+    ]
+  }
+}

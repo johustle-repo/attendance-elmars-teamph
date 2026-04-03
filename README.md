@@ -64,28 +64,7 @@ cd attendance-elmars-teamph
 
 This section is the full setup flow for a new machine.
 
-### 1. Install PHP and frontend dependencies
-
-```bash
-composer install
-npm install
-```
-
-### 2. Create the environment file
-
-Linux / macOS:
-
-```bash
-cp .env.example .env
-```
-
-Windows PowerShell:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-### 3. Choose your database
+### 1. Choose your database
 
 You can use either SQLite or MySQL.
 
@@ -93,27 +72,7 @@ You can use either SQLite or MySQL.
 
 This is the fastest and easiest local setup.
 
-Create the database file:
-
-Linux / macOS:
-
-```bash
-touch database/database.sqlite
-```
-
-Windows PowerShell:
-
-```powershell
-New-Item database/database.sqlite -ItemType File -Force
-```
-
-Make sure `.env` contains:
-
-```env
-DB_CONNECTION=sqlite
-```
-
-You do not need to set `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, or `DB_PASSWORD` for the default SQLite setup.
+The installer will create `database/database.sqlite` automatically, and the default `.env.example` is already configured for SQLite.
 
 #### Option B: MySQL / XAMPP
 
@@ -121,6 +80,7 @@ If you are using XAMPP on another computer:
 
 1. Start `Apache` and `MySQL` from the XAMPP Control Panel.
 2. Create a database in phpMyAdmin named `attendance_elmars_teamph`.
+3. Update `.env` before running the installer.
 
 SQL example:
 
@@ -128,7 +88,7 @@ SQL example:
 CREATE DATABASE attendance_elmars_teamph;
 ```
 
-Update `.env`:
+MySQL `.env` values:
 
 ```env
 DB_CONNECTION=mysql
@@ -139,25 +99,29 @@ DB_USERNAME=root
 DB_PASSWORD=
 ```
 
-### 4. Generate the Laravel app key
+### 2. Install PHP and frontend dependencies
 
 ```bash
-php artisan key:generate
+composer install
+npm install
 ```
 
-### 5. Run migrations and seed the app
+### 3. Run the installer
 
 ```bash
-php artisan migrate --seed
+php artisan app:install --seed
 ```
 
-This will:
+The installer will:
 
-- create the database tables
-- create the cache, jobs, and session tables
+- create `.env` from `.env.example` when needed
+- create `database/database.sqlite` automatically when you use SQLite
+- generate the Laravel app key
+- create the public storage link when possible
+- run database migrations
 - seed the default admin and member accounts
 
-### 6. Build or run frontend assets
+### 4. Build or run frontend assets
 
 For development:
 
@@ -171,7 +135,7 @@ For a production-style local build:
 npm run build
 ```
 
-### 7. Start the Laravel app
+### 5. Start the Laravel app
 
 In a separate terminal:
 
@@ -187,11 +151,10 @@ http://127.0.0.1:8000
 
 ## Quick Install Shortcut
 
-If you want the shortest setup path:
+If you want the shortest setup path from a fresh clone:
 
 ```bash
 composer run setup
-php artisan db:seed
 ```
 
 Then run:
@@ -203,8 +166,8 @@ npm run dev
 
 Note:
 
-- `composer run setup` installs dependencies and runs migrations
-- it does not seed demo users by itself, so `php artisan db:seed` is still needed if you want sample accounts
+- `composer run setup` installs dependencies, prepares `.env`, creates the SQLite database if needed, runs migrations, seeds demo users, and builds the frontend assets
+- if you want MySQL instead of SQLite, edit `.env` before running `php artisan app:install --seed`
 
 ## Development Mode
 
@@ -217,12 +180,11 @@ composer run dev
 That starts:
 
 - Laravel server
-- queue listener
 - Vite dev server
 
 ## Seeded Accounts
 
-After running `php artisan migrate --seed` or `php artisan db:seed`, these demo accounts are available:
+After running `php artisan app:install --seed`, `php artisan migrate --seed`, or `php artisan db:seed`, these demo accounts are available:
 
 - Super Admin: `superadmin@duscaff.local`
 - Admin: `admin@duscaff.local`
@@ -254,6 +216,12 @@ FIREBASE_DATABASE_SECRET=
 If those values are empty, the local app can still run normally.
 
 ## Useful Commands
+
+Run the installer:
+
+```bash
+php artisan app:install --seed
+```
 
 Run Laravel:
 
@@ -294,6 +262,99 @@ Build assets:
 npm run build
 ```
 
+## Portable Windows Package
+
+If you want a copyable package for another Windows computer, build a portable
+release on the source machine:
+
+```bash
+composer run package:portable
+```
+
+That command refreshes the production frontend build and overwrites the previous
+portable `dist` output automatically.
+
+If you prefer running the packaging steps manually, use:
+
+```bash
+npm run build
+php artisan app:package-portable --force
+```
+
+Or call the artisan command directly:
+
+```bash
+php artisan app:package-portable --force
+```
+
+This creates a portable folder in:
+
+```text
+dist/portable/duscaff-attendance-portable
+```
+
+And, when `ZipArchive` is available, also creates:
+
+```text
+dist/portable/duscaff-attendance-portable.zip
+```
+
+The portable package includes:
+
+- bundled Laravel `vendor` dependencies
+- built frontend assets from `public/build`
+- the current SQLite database when `database/database.sqlite` exists
+- Windows startup scripts: `prepare-portable.bat` and `start-portable.bat`
+
+If you want a fresh portable distribution with no copied SQLite data, run:
+
+```bash
+php artisan app:package-portable --force --without-current-data
+```
+
+On the other computer, the target machine only needs PHP `8.2+`, or a portable
+PHP runtime copied into a local `php` folder inside the package. Then run:
+
+```text
+start-portable.bat
+```
+
+If the package starts with a fresh or empty SQLite file, the first run will
+also seed the default demo accounts automatically so the copied app is usable
+right away.
+
+## Windows EXE Installer
+
+If you want a single Windows setup `.exe`, build the installer on the source machine:
+
+```bash
+composer run package:installer
+```
+
+That creates:
+
+```text
+dist/installer/Duscaff-Attendance-Setup.exe
+```
+
+The installer bundles the current local PHP runtime, installs the app into:
+
+```text
+%LOCALAPPDATA%\Programs\Duscaff Attendance
+```
+
+And creates both Desktop and Start menu shortcuts.
+
+By default the installer ships with a fresh SQLite database so it does not copy your current local app data into the `.exe`.
+If you intentionally want to include the current SQLite data, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy/installer/build-installer.ps1 -IncludeCurrentData
+```
+
+Installer-specific notes are also documented in:
+
+- [INSTALLER-README.md](/c:/xampp/htdocs/duscaff-attendance/deploy/installer/INSTALLER-README.md)
 ## Troubleshooting
 
 ### `composer install` fails
@@ -304,6 +365,14 @@ Make sure:
 - Composer is installed correctly
 - required PHP extensions are enabled
 
+### `php artisan app:install --seed` fails
+
+Check:
+
+- `.env` has the correct database connection settings
+- MySQL is running if you switched from SQLite to MySQL
+- the SQLite driver is enabled in PHP if you are using SQLite
+
 ### `npm install` or `npm run dev` fails
 
 Make sure:
@@ -312,24 +381,19 @@ Make sure:
 - npm is available in your terminal
 - you are running the commands from the project root
 
-### Database connection error
-
-Check `.env` and confirm:
-
-- the selected database driver is correct
-- MySQL is running if you use XAMPP
-- the SQLite file exists if you use SQLite
-
 ### Login does not work
 
 Make sure you already ran:
 
 ```bash
-php artisan migrate --seed
+php artisan app:install --seed
 ```
 
 ## Deployment
 
-Cloud Run and Firebase Hosting deployment notes are available in:
+Deployment notes are available in:
 
 - [firebase-cloud-run.md](/c:/xampp/htdocs/duscaff-attendance/docs/deployment/firebase-cloud-run.md)
+- [infinityfree.md](/c:/xampp/htdocs/duscaff-attendance/docs/deployment/infinityfree.md)
+- [railway.md](/c:/xampp/htdocs/duscaff-attendance/docs/deployment/railway.md)
+

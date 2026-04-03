@@ -28,7 +28,11 @@ export type UseCurrentUrlReturn = {
 
 export function useCurrentUrl(): UseCurrentUrlReturn {
     const page = usePage();
-    const currentUrlPath = new URL(page.url, window?.location.origin).pathname;
+    const fallbackOrigin =
+        typeof window !== 'undefined'
+            ? window.location.origin
+            : 'http://localhost';
+    const currentUrlPath = new URL(page.url, fallbackOrigin).pathname;
 
     const isCurrentUrl: IsCurrentUrlFn = (
         urlToCheck: NonNullable<InertiaLinkProps['href']>,

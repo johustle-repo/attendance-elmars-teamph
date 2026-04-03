@@ -28,10 +28,13 @@ class User extends Authenticatable
      */
     protected $fillable = [
         'name',
+        'sub_name',
         'email',
         'role',
         'employee_code',
         'position',
+        'hourly_rate',
+        'night_shift_eligible',
         'status',
         'qr_token',
         'password',
@@ -69,6 +72,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
+            'night_shift_eligible' => 'boolean',
             'status' => 'string',
             'two_factor_confirmed_at' => 'datetime',
         ];
