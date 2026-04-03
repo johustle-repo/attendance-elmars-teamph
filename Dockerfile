@@ -73,6 +73,9 @@ COPY --from=frontend /app/public/build ./public/build
 RUN mkdir -p bootstrap/cache storage/framework/cache storage/framework/sessions storage/framework/views storage/logs \
     && chmod -R ug+rwx bootstrap/cache storage
 
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
 EXPOSE 8080
 
-CMD ["sh", "-c", "php artisan serve --host=0.0.0.0 --port=${PORT:-8080}"]
+CMD ["/start.sh"]
