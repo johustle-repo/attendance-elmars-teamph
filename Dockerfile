@@ -15,16 +15,30 @@ COPY . .
 RUN composer dump-autoload --optimize --classmap-authoritative \
     && php artisan package:discover --ansi
 
-FROM node:20-alpine AS frontend
+FROM node:20 AS frontend
 
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    php-cli \
+    php-bcmath \
+    php-intl \
+    php-mbstring \
+    php-mysql \
+    php-pgsql \
+    php-xml \
+    php-zip \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+COPY --from=vendor /app/vendor ./vendor
 
-RUN npm run build
+RUN php artisan package:discover --ansi \
+    && npm run build
 
 FROM php:8.3-apache
 
