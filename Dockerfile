@@ -75,4 +75,4 @@ RUN mkdir -p bootstrap/cache storage/framework/cache storage/framework/sessions 
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "php -S 0.0.0.0:${PORT:-8080} -t public server.php"]
+CMD ["sh", "-c", "php artisan serve --host=0.0.0.0 --port=${PORT:-8080}"]
