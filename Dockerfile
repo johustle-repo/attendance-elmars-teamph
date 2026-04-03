@@ -60,45 +60,19 @@ COPY --from=vendor /app/vendor ./vendor
 RUN php artisan package:discover --ansi \
     && npm run build
 
-FROM php:8.3-apache
+FROM php-build AS runtime
 
 WORKDIR /var/www/html
 
-ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 ENV PORT=8080
-
-RUN apt-get update && apt-get install -y \
-    git \
-    libicu-dev \
-    libonig-dev \
-    libpq-dev \
-    libxml2-dev \
-    libzip-dev \
-    unzip \
-    zip \
-    && docker-php-ext-install \
-        bcmath \
-        intl \
-        mbstring \
-        pdo_mysql \
-        pdo_pgsql \
-        xml \
-        zip \
-    && rm -f /etc/apache2/mods-enabled/mpm_*.load /etc/apache2/mods-enabled/mpm_*.conf \
-    && a2enmod mpm_prefork rewrite \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY deploy/apache/000-default.conf /etc/apache2/sites-available/000-default.conf
-COPY deploy/apache/ports.conf /etc/apache2/ports.conf
 
 COPY . .
 COPY --from=vendor /app/vendor ./vendor
 COPY --from=frontend /app/public/build ./public/build
 
 RUN mkdir -p bootstrap/cache storage/framework/cache storage/framework/sessions storage/framework/views storage/logs \
-    && chown -R www-data:www-data bootstrap/cache storage public \
     && chmod -R ug+rwx bootstrap/cache storage
 
 EXPOSE 8080
 
-CMD ["apache2-foreground"]
+CMD ["sh", "-c", "php -S 0.0.0.0:${PORT:-8080} -t public server.php"]
