@@ -1,7 +1,8 @@
 #!/bin/sh
 set -e
 
-# Ensure SQLite database file exists on the persistent disk
+# Ensure the data directory and SQLite database file exist
+mkdir -p "$(dirname "${DB_DATABASE:-/var/data/database.sqlite}")"
 if [ ! -f "${DB_DATABASE:-/var/data/database.sqlite}" ]; then
     touch "${DB_DATABASE:-/var/data/database.sqlite}"
 fi
