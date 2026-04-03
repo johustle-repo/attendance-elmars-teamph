@@ -1,6 +1,31 @@
-FROM composer:2 AS vendor
+FROM node:20 AS node
+
+FROM php:8.3-cli AS php-build
 
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    git \
+    libicu-dev \
+    libonig-dev \
+    libpq-dev \
+    libxml2-dev \
+    libzip-dev \
+    unzip \
+    zip \
+    && docker-php-ext-install \
+        bcmath \
+        intl \
+        mbstring \
+        pdo_mysql \
+        pdo_pgsql \
+        xml \
+        zip \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+FROM php-build AS vendor
 
 COPY composer.json composer.lock ./
 RUN composer install \
@@ -15,21 +40,12 @@ COPY . .
 RUN composer dump-autoload --optimize --classmap-authoritative \
     && php artisan package:discover --ansi
 
-FROM node:20 AS frontend
+FROM php-build AS frontend
 
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y \
-    php-cli \
-    php-bcmath \
-    php-intl \
-    php-mbstring \
-    php-mysql \
-    php-pgsql \
-    php-xml \
-    php-zip \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/bin/npm /usr/local/bin/npm
+COPY --from=node /usr/local/bin/npx /usr/local/bin/npx
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -59,8 +75,10 @@ RUN apt-get update && apt-get install -y \
     && docker-php-ext-install \
         bcmath \
         intl \
+        mbstring \
         pdo_mysql \
         pdo_pgsql \
+        xml \
         zip \
     && a2enmod rewrite \
     && rm -rf /var/lib/apt/lists/*
