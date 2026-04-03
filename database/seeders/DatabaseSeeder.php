@@ -79,6 +79,19 @@ class DatabaseSeeder extends Seeder
             ],
         ];
 
+        $qrTokens = [
+            'DUS-SUPER' => '1e1cc06f-82cd-4f2c-8549-c2a6e2f12424',
+            'DUS-ADMIN' => '8d7ba10a-f73a-4e3a-89c6-3816733b56c9',
+            'DUS-001'   => 'b1e09940-520e-46bb-9135-f97ca1fa8548',
+            'DUS-002'   => 'fe79d6a8-d02e-4935-a60d-fdba6908c78f',
+            'DUS-003'   => '40f3004f-4d7e-45cf-b75f-0d2255d5cde4',
+            'DUS-004'   => 'd8f8dd3d-331b-437f-8f49-768de234fc35',
+            'DUS-005'   => 'fd9ade8c-3d9a-43f8-81db-30b7c58ca04e',
+            'DUS-006'   => '6684541e-270d-48fe-b1e9-494551fa6d14',
+            'DUS-007'   => '59611dab-5a0b-448a-96d9-b4dcffea6c5f',
+            'DUS-008'   => '11449c88-7c4b-421d-a3dd-58b72d16dd8a',
+        ];
+
         $systemAccounts = [
             [
                 'name' => 'System Super Admin',
@@ -144,7 +157,7 @@ class DatabaseSeeder extends Seeder
                 ...$account,
                 'email_verified_at' => now(),
                 'password' => Hash::make(self::DEFAULT_PASSWORD),
-                'qr_token' => $existingUser?->qr_token ?: (string) Str::uuid(),
+                'qr_token' => $qrTokens[$account['employee_code']] ?? $existingUser?->qr_token ?? (string) Str::uuid(),
             ]);
 
             $user->save();
