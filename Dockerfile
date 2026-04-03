@@ -84,7 +84,8 @@ RUN apt-get update && apt-get install -y \
         pdo_pgsql \
         xml \
         zip \
-    && a2enmod rewrite \
+    && (a2dismod mpm_event mpm_worker || true) \
+    && a2enmod mpm_prefork rewrite \
     && rm -rf /var/lib/apt/lists/*
 
 COPY deploy/apache/000-default.conf /etc/apache2/sites-available/000-default.conf
