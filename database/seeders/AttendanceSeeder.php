@@ -194,6 +194,13 @@ class AttendanceSeeder extends Seeder
         $userMap = User::whereIn('employee_code', array_unique(array_column($records, 'code')))
             ->pluck('id', 'employee_code');
 
+        if (Attendance::exists()) {
+            return;
+        }
+
+        $qrTokenMap = User::whereIn('employee_code', array_keys($userMap->all()))
+            ->pluck('qr_token', 'id');
+
         $now = now();
         $rows = [];
 
@@ -204,22 +211,18 @@ class AttendanceSeeder extends Seeder
             }
 
             $rows[] = [
-                'user_id'     => $userId,
-                'recorded_at' => $r['at'],
-                'entry_type'  => $r['type'],
-                'scanned_code' => 'attendance:' . User::where('id', $userId)->value('qr_token'),
-                'source'      => $r['src'],
-                'created_at'  => $now,
-                'updated_at'  => $now,
+                'user_id'      => $userId,
+                'recorded_at'  => $r['at'],
+                'entry_type'   => $r['type'],
+                'scanned_code' => 'attendance:' . ($qrTokenMap[$userId] ?? ''),
+                'source'       => $r['src'],
+                'created_at'   => $now,
+                'updated_at'   => $now,
             ];
         }
 
         foreach (array_chunk($rows, 50) as $chunk) {
-            Attendance::upsert(
-                $chunk,
-                ['user_id', 'recorded_at', 'entry_type'],
-                ['source', 'scanned_code', 'updated_at']
-            );
+            Attendance::insert($chunk);
         }
     }
 }
