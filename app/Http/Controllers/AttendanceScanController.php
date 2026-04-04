@@ -118,18 +118,22 @@ class AttendanceScanController extends Controller
             'source' => 'qr_scan',
         ]);
 
-        AuditLog::record(
-            request: $request,
-            action: 'attendance.scan',
-            resourceType: 'Attendance',
-            resourceId: $attendance->id,
-            newValues: [
-                'user_id' => $user->id,
-                'entry_type' => $entryType,
-                'recorded_at' => $recordedAt->toIso8601String(),
-                'source' => 'qr_scan',
-            ],
-        );
+        try {
+            AuditLog::record(
+                request: $request,
+                action: 'attendance.scan',
+                resourceType: 'Attendance',
+                resourceId: $attendance->id,
+                newValues: [
+                    'user_id' => $user->id,
+                    'entry_type' => $entryType,
+                    'recorded_at' => $recordedAt->toIso8601String(),
+                    'source' => 'qr_scan',
+                ],
+            );
+        } catch (\Throwable) {
+            // Audit log must never block attendance recording
+        }
 
         return redirect()
             ->route('scan.create')
