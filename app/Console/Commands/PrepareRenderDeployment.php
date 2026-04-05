@@ -5,7 +5,7 @@ namespace App\Console\Commands;
 use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 class PrepareRenderDeployment extends Command
@@ -16,6 +16,12 @@ class PrepareRenderDeployment extends Command
 
     public function handle(): int
     {
+        if ($this->isRunningOnRender() && ! $this->hasPersistentRenderDatabaseConfigured()) {
+            $this->components->error('Render must use a persistent Postgres database. Set DB_CONNECTION=pgsql and provide DB_URL from a Render Postgres service.');
+
+            return self::FAILURE;
+        }
+
         $currentCommit = env('RENDER_GIT_COMMIT');
 
         if ($currentCommit && $this->hasProcessedCommit($currentCommit)) {
@@ -57,33 +63,45 @@ class PrepareRenderDeployment extends Command
 
     private function hasProcessedCommit(string $commit): bool
     {
-        if (! $this->canUsePersistentCache()) {
+        if (! Schema::hasTable('deployment_state')) {
             return false;
         }
 
-        return Cache::get($this->deploymentCacheKey()) === $commit;
+        return DB::table('deployment_state')
+            ->where('key', $this->deploymentStateKey())
+            ->value('value') === $commit;
     }
 
     private function markCommitAsProcessed(string $commit): void
     {
-        if (! $this->canUsePersistentCache()) {
+        if (! Schema::hasTable('deployment_state')) {
             return;
         }
 
-        Cache::forever($this->deploymentCacheKey(), $commit);
+        $timestamp = now();
+
+        DB::table('deployment_state')->updateOrInsert(
+            ['key' => $this->deploymentStateKey()],
+            [
+                'value' => $commit,
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ],
+        );
     }
 
-    private function canUsePersistentCache(): bool
+    private function isRunningOnRender(): bool
     {
-        if (config('cache.default') !== 'database') {
-            return true;
-        }
-
-        return Schema::hasTable(config('cache.stores.database.table', 'cache'));
+        return filled(env('RENDER_SERVICE_ID')) || filled(env('RENDER')) || filled(env('RENDER_GIT_COMMIT'));
     }
 
-    private function deploymentCacheKey(): string
+    private function hasPersistentRenderDatabaseConfigured(): bool
     {
-        return 'deploy:last_processed_render_commit';
+        return config('database.default') === 'pgsql' && filled(env('DB_URL'));
+    }
+
+    private function deploymentStateKey(): string
+    {
+        return 'render:last_processed_commit';
     }
 }

@@ -9,12 +9,21 @@ if [ "${DB_CONNECTION:-sqlite}" = "sqlite" ]; then
     fi
 fi
 
+# Render free instances use an ephemeral filesystem, so production data must
+# live in Render Postgres instead of the container-local SQLite file.
+if [ -n "${RENDER_SERVICE_ID:-}" ] || [ -n "${RENDER_GIT_COMMIT:-}" ]; then
+    if [ "${DB_CONNECTION:-}" != "pgsql" ] || [ -z "${DB_URL:-}" ]; then
+        echo "Render must run with DB_CONNECTION=pgsql and a persistent DB_URL. Refusing to start with ephemeral SQLite." >&2
+        exit 1
+    fi
+fi
+
 # Force APP_URL to use https (in case env var was set with http://)
 if [ -n "$APP_URL" ]; then
     export APP_URL=$(echo "$APP_URL" | sed 's|^http://|https://|')
 fi
 
-# Run deployment tasks once per Render commit
+# Run deployment tasks only once per deployed Render commit
 php artisan app:prepare-render-deployment
 
 # Clear any stale cache from previous deploys
