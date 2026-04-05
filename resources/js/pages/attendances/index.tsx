@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Head, router, usePage } from '@inertiajs/react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { CalendarCheck2, Download, Search, Trash2 } from 'lucide-react';
 import { FlashMessage } from '@/components/flash-message';
 import { Badge } from '@/components/ui/badge';
@@ -12,8 +12,23 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
 import type { AttendanceSummaryItem, BreadcrumbItem, Flash } from '@/types';
+
+type RecordableUser = {
+    id: number;
+    name: string;
+    sub_name?: string | null;
+    employee_code?: string | null;
+};
 
 type Props = {
     filters: {
@@ -27,6 +42,7 @@ type Props = {
         teamSize: number;
     };
     canEditAttendanceTime: boolean;
+    recordableUsers: RecordableUser[];
     attendances: AttendanceSummaryItem[];
 };
 
@@ -39,6 +55,16 @@ type EditingValues = Record<
         time_out_time: string;
     }
 >;
+
+type ManualRecordEntryType = 'time_in' | 'time_out';
+type AttendanceTab = 'monitor' | 'record';
+
+type ManualRecordForm = {
+    user_id: string;
+    entry_type: ManualRecordEntryType;
+    recorded_date: string;
+    recorded_time: string;
+};
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Dashboard', href: '/dashboard' },
@@ -64,14 +90,22 @@ export default function AttendancesIndex({
     officeHours,
     summary,
     canEditAttendanceTime,
+    recordableUsers,
     attendances,
 }: Props) {
     const { flash } = usePage().props as { flash: Flash };
     const [search, setSearch] = useState(filters.search);
     const [date, setDate] = useState(filters.date);
+    const [activeTab, setActiveTab] = useState<AttendanceTab>('monitor');
     const [editingValues, setEditingValues] = useState<EditingValues>(
         toEditingValues(attendances),
     );
+    const recordAttendanceForm = useForm<ManualRecordForm>({
+        user_id: recordableUsers[0] ? String(recordableUsers[0].id) : '',
+        entry_type: 'time_in',
+        recorded_date: filters.date,
+        recorded_time: '',
+    });
 
     const exportUrl = useMemo(() => {
         const params = new URLSearchParams();
@@ -109,7 +143,7 @@ export default function AttendancesIndex({
 
     const saveAttendanceTime = (
         attendance: AttendanceSummaryItem,
-        entryType: 'time_in' | 'time_out',
+        entryType: ManualRecordEntryType,
     ) => {
         const attendanceId =
             entryType === 'time_in'
@@ -160,9 +194,26 @@ export default function AttendancesIndex({
         );
     };
 
+    const submitRecordAttendance = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+
+        recordAttendanceForm.transform((data) => ({
+            ...data,
+            search,
+            date,
+        }));
+
+        recordAttendanceForm.post('/attendances/manual-record', {
+            preserveScroll: true,
+            onSuccess: () => {
+                recordAttendanceForm.setData('recorded_time', '');
+            },
+        });
+    };
+
     const deleteAttendance = (
         attendanceId: number | null | undefined,
-        entryType: 'time_in' | 'time_out',
+        entryType: ManualRecordEntryType,
     ) => {
         if (!attendanceId) {
             return;
@@ -276,12 +327,42 @@ export default function AttendancesIndex({
                     </CardContent>
                 </Card>
 
+                {canEditAttendanceTime ? (
+                    <div className="inline-flex w-full max-w-fit rounded-2xl bg-slate-100 p-1 dark:bg-slate-900">
+                        <Button
+                            type="button"
+                            variant={activeTab === 'monitor' ? 'default' : 'ghost'}
+                            onClick={() => setActiveTab('monitor')}
+                            className={
+                                activeTab === 'monitor'
+                                    ? 'bg-slate-950 text-white hover:bg-slate-800 dark:bg-cyan-500 dark:text-slate-950 dark:hover:bg-cyan-400'
+                                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100'
+                            }
+                        >
+                            Attendance Monitor
+                        </Button>
+                        <Button
+                            type="button"
+                            variant={activeTab === 'record' ? 'default' : 'ghost'}
+                            onClick={() => setActiveTab('record')}
+                            className={
+                                activeTab === 'record'
+                                    ? 'bg-slate-950 text-white hover:bg-slate-800 dark:bg-cyan-500 dark:text-slate-950 dark:hover:bg-cyan-400'
+                                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100'
+                            }
+                        >
+                            Record Attendance
+                        </Button>
+                    </div>
+                ) : null}
+
+                {(!canEditAttendanceTime || activeTab === 'monitor') ? (
                 <Card className="dark:border-slate-800 dark:bg-slate-950/80">
                     <CardHeader>
                         <CardTitle>Daily attendance monitor</CardTitle>
                         <CardDescription>
                             {canEditAttendanceTime
-                                ? 'Super admin accounts can adjust existing Time In and Time Out records and add a missing Time Out directly from the table.'
+                                ? 'Super admin accounts can adjust existing Time In and Time Out records, add a missing Time Out, and switch to the Record Attendance tab for new manual entries.'
                                 : 'Admin accounts can review daily attendance in a clearer summarized view.'}
                         </CardDescription>
                     </CardHeader>
@@ -604,7 +685,7 @@ export default function AttendancesIndex({
                                                         )}
                                                     </td>
                                                     <td className="px-4 py-4 font-medium text-slate-900 dark:text-slate-100">
-                                                        {attendance.total_hours_label ?? '—'}
+                                                        {attendance.total_hours_label ?? 'N/A'}
                                                     </td>
                                                 </tr>
                                             );
@@ -615,6 +696,206 @@ export default function AttendancesIndex({
                         )}
                     </CardContent>
                 </Card>
+
+                ) : null}
+
+                {canEditAttendanceTime && activeTab === 'record' ? (
+                    <Card className="dark:border-slate-800 dark:bg-slate-950/80">
+                        <CardHeader>
+                            <CardTitle>Record attendance</CardTitle>
+                            <CardDescription>
+                                Manually add a Time In or Time Out record for
+                                an active agent. Time Out entries still require
+                                an existing Time In on the same date.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            {recordableUsers.length === 0 ? (
+                                <div className="rounded-[1.5rem] border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                                    No active agents are available to record
+                                    attendance right now.
+                                </div>
+                            ) : (
+                                <form
+                                    onSubmit={submitRecordAttendance}
+                                    className="grid gap-5 lg:grid-cols-2"
+                                >
+                                    <div className="space-y-2 lg:col-span-2">
+                                        <Label htmlFor="record-user">
+                                            Agent
+                                        </Label>
+                                        <Select
+                                            value={recordAttendanceForm.data.user_id}
+                                            onValueChange={(value) =>
+                                                recordAttendanceForm.setData(
+                                                    'user_id',
+                                                    value,
+                                                )
+                                            }
+                                        >
+                                            <SelectTrigger
+                                                id="record-user"
+                                                className="w-full"
+                                            >
+                                                <SelectValue placeholder="Select an agent" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {recordableUsers.map((user) => (
+                                                    <SelectItem
+                                                        key={user.id}
+                                                        value={String(user.id)}
+                                                    >
+                                                        {`${user.name}${user.employee_code ? ` (${user.employee_code})` : ''}`}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {recordAttendanceForm.errors.user_id ? (
+                                            <p className="text-sm text-rose-600 dark:text-rose-300">
+                                                {
+                                                    recordAttendanceForm.errors
+                                                        .user_id
+                                                }
+                                            </p>
+                                        ) : null}
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="record-entry-type">
+                                            Entry type
+                                        </Label>
+                                        <Select
+                                            value={recordAttendanceForm.data.entry_type}
+                                            onValueChange={(value) =>
+                                                recordAttendanceForm.setData(
+                                                    'entry_type',
+                                                    value as ManualRecordEntryType,
+                                                )
+                                            }
+                                        >
+                                            <SelectTrigger
+                                                id="record-entry-type"
+                                                className="w-full"
+                                            >
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="time_in">
+                                                    Time In
+                                                </SelectItem>
+                                                <SelectItem value="time_out">
+                                                    Time Out
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        {recordAttendanceForm.errors.entry_type ? (
+                                            <p className="text-sm text-rose-600 dark:text-rose-300">
+                                                {
+                                                    recordAttendanceForm.errors
+                                                        .entry_type
+                                                }
+                                            </p>
+                                        ) : null}
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="record-date">Date</Label>
+                                        <Input
+                                            id="record-date"
+                                            type="date"
+                                            value={
+                                                recordAttendanceForm.data
+                                                    .recorded_date
+                                            }
+                                            onChange={(event) =>
+                                                recordAttendanceForm.setData(
+                                                    'recorded_date',
+                                                    event.target.value,
+                                                )
+                                            }
+                                        />
+                                        {recordAttendanceForm.errors.recorded_date ? (
+                                            <p className="text-sm text-rose-600 dark:text-rose-300">
+                                                {
+                                                    recordAttendanceForm.errors
+                                                        .recorded_date
+                                                }
+                                            </p>
+                                        ) : null}
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="record-time">Time</Label>
+                                        <Input
+                                            id="record-time"
+                                            type="time"
+                                            value={
+                                                recordAttendanceForm.data
+                                                    .recorded_time
+                                            }
+                                            onChange={(event) =>
+                                                recordAttendanceForm.setData(
+                                                    'recorded_time',
+                                                    event.target.value,
+                                                )
+                                            }
+                                        />
+                                        {recordAttendanceForm.errors.recorded_time ? (
+                                            <p className="text-sm text-rose-600 dark:text-rose-300">
+                                                {
+                                                    recordAttendanceForm.errors
+                                                        .recorded_time
+                                                }
+                                            </p>
+                                        ) : null}
+                                    </div>
+
+                                    <div className="space-y-3 rounded-2xl bg-slate-50 p-4 lg:col-span-2 dark:bg-slate-900">
+                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                            Quick reminders
+                                        </p>
+                                        <p className="text-sm text-slate-600 dark:text-slate-300">
+                                            Only active agents are listed here.
+                                            A Time In must happen before a Time
+                                            Out on the same date, and each date
+                                            only allows one Time In and one Time
+                                            Out per agent.
+                                        </p>
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-3 lg:col-span-2">
+                                        <Button
+                                            type="submit"
+                                            disabled={
+                                                recordAttendanceForm.processing ||
+                                                !recordAttendanceForm.data
+                                                    .user_id ||
+                                                !recordAttendanceForm.data
+                                                    .recorded_date ||
+                                                !recordAttendanceForm.data
+                                                    .recorded_time
+                                            }
+                                            className="bg-cyan-600 text-white hover:bg-cyan-700"
+                                        >
+                                            {recordAttendanceForm.processing
+                                                ? 'Recording...'
+                                                : 'Record attendance'}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={() =>
+                                                recordAttendanceForm.reset()
+                                            }
+                                        >
+                                            Reset form
+                                        </Button>
+                                    </div>
+                                </form>
+                            )}
+                        </CardContent>
+                    </Card>
+                ) : null}
             </div>
         </AppLayout>
     );

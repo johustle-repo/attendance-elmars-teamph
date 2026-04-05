@@ -1,3 +1,7 @@
+databases:
+  - name: duscaff-attendance-db
+    plan: free
+
 services:
   - type: web
     name: duscaff-attendance
@@ -18,13 +22,15 @@ services:
       - key: APP_TIMEZONE
         value: Asia/Manila
       - key: DB_CONNECTION
-        value: sqlite
-      - key: DB_DATABASE
-        value: /var/data/database.sqlite
+        value: pgsql
+      - key: DB_URL
+        fromDatabase:
+          name: duscaff-attendance-db
+          property: connectionString
       - key: SESSION_DRIVER
         value: file
       - key: CACHE_STORE
-        value: file
+        value: database
       - key: LOG_CHANNEL
         value: stderr
       - key: LOG_LEVEL
@@ -33,7 +39,3 @@ services:
         sync: false
       - key: FIREBASE_DATABASE_SECRET
         sync: false
-    disk:
-      name: data
-      mountPath: /var/data
-      sizeGB: 1

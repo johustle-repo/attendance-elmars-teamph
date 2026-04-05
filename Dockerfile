@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     libicu-dev \
     libonig-dev \
     libpq-dev \
+    libsqlite3-dev \
     libxml2-dev \
     libzip-dev \
     unzip \
@@ -17,6 +18,7 @@ RUN apt-get update && apt-get install -y \
         mbstring \
         pdo_mysql \
         pdo_pgsql \
+        pdo_sqlite \
         xml \
         zip \
     && rm -rf /var/lib/apt/lists/*

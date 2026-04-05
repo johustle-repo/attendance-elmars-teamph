@@ -12,6 +12,8 @@ use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -45,6 +47,20 @@ class AttendanceController extends Controller
                 'teamSize' => User::query()->visibleInSystem()->activeAgents()->count(),
             ],
             'canEditAttendanceTime' => $user->canEditAttendanceTime(),
+            'recordableUsers' => $user->canEditAttendanceTime()
+                ? User::query()
+                    ->visibleInSystem()
+                    ->activeAgents()
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'sub_name', 'employee_code'])
+                    ->map(fn (User $recordableUser): array => [
+                        'id' => $recordableUser->id,
+                        'name' => $recordableUser->name,
+                        'sub_name' => $recordableUser->sub_name,
+                        'employee_code' => $recordableUser->employee_code,
+                    ])
+                    ->values()
+                : [],
             'attendances' => $attendances->values(),
         ]);
     }
@@ -120,72 +136,24 @@ class AttendanceController extends Controller
             'recorded_time' => ['required', 'date_format:H:i'],
         ]);
 
-        $user = User::query()
-            ->visibleInSystem()
-            ->findOrFail($validated['user_id']);
-
-        $recordedAt = Carbon::parse(
-            $validated['recorded_date'].' '.$validated['recorded_time'],
-            config('app.timezone'),
-        );
-
-        $timeIn = Attendance::query()
-            ->visibleInSystem()
-            ->where('user_id', $user->id)
-            ->whereDate('recorded_at', $validated['recorded_date'])
-            ->where('entry_type', 'time_in')
-            ->orderBy('recorded_at')
-            ->first();
-
-        if (! $timeIn) {
-            return redirect()
-                ->route('attendances.index', $request->only('search', 'date'))
-                ->with('error', 'A Time In record is required before adding a Time Out.');
-        }
-
-        $existingTimeOut = Attendance::query()
-            ->visibleInSystem()
-            ->where('user_id', $user->id)
-            ->whereDate('recorded_at', $validated['recorded_date'])
-            ->where('entry_type', 'time_out')
-            ->exists();
-
-        if ($existingTimeOut) {
-            return redirect()
-                ->route('attendances.index', $request->only('search', 'date'))
-                ->with('error', 'A Time Out record already exists for this user on the selected date.');
-        }
-
-        if ($recordedAt->lessThanOrEqualTo($timeIn->recorded_at)) {
-            return redirect()
-                ->route('attendances.index', $request->only('search', 'date'))
-                ->with('error', 'Time Out must be later than the recorded Time In.');
-        }
-
-        $newAttendance = Attendance::query()->create([
-            'user_id' => $user->id,
-            'recorded_at' => $recordedAt,
+        return $this->storeManualAttendance($request, [
+            ...$validated,
             'entry_type' => 'time_out',
-            'scanned_code' => $user->qr_value ?? 'manual-time-out-'.$user->id,
-            'source' => 'manual_adjustment',
+        ]);
+    }
+
+    public function storeManualRecord(Request $request)
+    {
+        abort_unless($request->user()->canEditAttendanceTime(), 403);
+
+        $validated = $request->validate([
+            'user_id' => ['required', 'integer'],
+            'entry_type' => ['required', Rule::in(['time_in', 'time_out'])],
+            'recorded_date' => ['required', 'date'],
+            'recorded_time' => ['required', 'date_format:H:i'],
         ]);
 
-        AuditLog::record(
-            request: $request,
-            action: 'attendance.manual_time_out',
-            resourceType: 'Attendance',
-            resourceId: $newAttendance->id,
-            newValues: [
-                'user_id' => $user->id,
-                'entry_type' => 'time_out',
-                'recorded_at' => $recordedAt->toIso8601String(),
-                'source' => 'manual_adjustment',
-            ],
-        );
-
-        return redirect()
-            ->route('attendances.index', $request->only('search', 'date'))
-            ->with('success', 'Time Out added successfully.');
+        return $this->storeManualAttendance($request, $validated);
     }
 
     public function export(Request $request): StreamedResponse
@@ -224,6 +192,115 @@ class AttendanceController extends Controller
                 });
             })
             ->latest('recorded_at');
+    }
+
+    /**
+     * @param  array{user_id:int,entry_type:string,recorded_date:string,recorded_time:string}  $validated
+     */
+    private function storeManualAttendance(Request $request, array $validated)
+    {
+        $user = User::query()
+            ->visibleInSystem()
+            ->findOrFail($validated['user_id']);
+
+        $recordedAt = Carbon::parse(
+            $validated['recorded_date'].' '.$validated['recorded_time'],
+            config('app.timezone'),
+        );
+
+        $entryType = $validated['entry_type'];
+        $timeIn = Attendance::query()
+            ->visibleInSystem()
+            ->where('user_id', $user->id)
+            ->whereDate('recorded_at', $validated['recorded_date'])
+            ->where('entry_type', 'time_in')
+            ->orderBy('recorded_at')
+            ->first();
+        $timeOut = Attendance::query()
+            ->visibleInSystem()
+            ->where('user_id', $user->id)
+            ->whereDate('recorded_at', $validated['recorded_date'])
+            ->where('entry_type', 'time_out')
+            ->orderBy('recorded_at')
+            ->first();
+
+        if ($entryType === 'time_in') {
+            if ($timeIn) {
+                return $this->attendanceRedirect(
+                    $request,
+                    'A Time In record already exists for this user on the selected date.',
+                    'error',
+                );
+            }
+
+            if ($timeOut && $recordedAt->greaterThanOrEqualTo($timeOut->recorded_at)) {
+                return $this->attendanceRedirect(
+                    $request,
+                    'Time In must be earlier than the recorded Time Out.',
+                    'error',
+                );
+            }
+        }
+
+        if ($entryType === 'time_out') {
+            if (! $timeIn) {
+                return $this->attendanceRedirect(
+                    $request,
+                    'A Time In record is required before adding a Time Out.',
+                    'error',
+                );
+            }
+
+            if ($timeOut) {
+                return $this->attendanceRedirect(
+                    $request,
+                    'A Time Out record already exists for this user on the selected date.',
+                    'error',
+                );
+            }
+
+            if ($recordedAt->lessThanOrEqualTo($timeIn->recorded_at)) {
+                return $this->attendanceRedirect(
+                    $request,
+                    'Time Out must be later than the recorded Time In.',
+                    'error',
+                );
+            }
+        }
+
+        $newAttendance = Attendance::query()->create([
+            'user_id' => $user->id,
+            'recorded_at' => $recordedAt,
+            'entry_type' => $entryType,
+            'scanned_code' => $user->qr_value ?? 'manual-'.$entryType.'-'.$user->id,
+            'source' => 'manual_adjustment',
+        ]);
+
+        AuditLog::record(
+            request: $request,
+            action: 'attendance.manual_'.$entryType,
+            resourceType: 'Attendance',
+            resourceId: $newAttendance->id,
+            newValues: [
+                'user_id' => $user->id,
+                'entry_type' => $entryType,
+                'recorded_at' => $recordedAt->toIso8601String(),
+                'source' => 'manual_adjustment',
+            ],
+        );
+
+        return $this->attendanceRedirect(
+            $request,
+            Str::headline(str_replace('_', ' ', $entryType)).' recorded successfully for '.$user->name.'.',
+            'success',
+        );
+    }
+
+    private function attendanceRedirect(Request $request, string $message, string $flashKey)
+    {
+        return redirect()
+            ->route('attendances.index', $request->only('search', 'date'))
+            ->with($flashKey, $message);
     }
 
     private function buildAttendanceSummaries(Collection $attendances): Collection

@@ -470,6 +470,74 @@ test('super admin can add a missing time out from attendance management', functi
     ]);
 });
 
+test('super admin attendance page includes active agents for manual recording', function () {
+    $superAdmin = User::factory()->create([
+        'role' => UserRole::SuperAdmin,
+        'email_verified_at' => now(),
+    ]);
+
+    $activeMember = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'status' => User::STATUS_ACTIVE,
+        'name' => 'Active Agent',
+    ]);
+
+    $inactiveMember = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'status' => User::STATUS_INACTIVE,
+        'name' => 'Inactive Agent',
+    ]);
+
+    $this->actingAs($superAdmin)
+        ->get('/attendances?date='.now()->toDateString())
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page) use ($activeMember, $inactiveMember): void {
+            $page
+                ->where('canEditAttendanceTime', true)
+                ->where('recordableUsers', function ($users) use ($activeMember, $inactiveMember): bool {
+                    $ids = collect($users)->pluck('id');
+
+                    return $ids->contains($activeMember->id)
+                        && ! $ids->contains($inactiveMember->id);
+                });
+        });
+});
+
+test('super admin can record a manual time in from attendance management', function () {
+    $superAdmin = User::factory()->create([
+        'role' => UserRole::SuperAdmin,
+        'email_verified_at' => now(),
+    ]);
+
+    $member = User::factory()->create([
+        'role' => UserRole::Member,
+        'email_verified_at' => now(),
+        'status' => User::STATUS_ACTIVE,
+    ]);
+
+    $this->actingAs($superAdmin)
+        ->post('/attendances/manual-record', [
+            'user_id' => $member->id,
+            'entry_type' => 'time_in',
+            'recorded_date' => now()->toDateString(),
+            'recorded_time' => '08:15',
+            'date' => now()->toDateString(),
+        ])
+        ->assertRedirect('/attendances?date='.now()->toDateString());
+
+    $manualAttendance = Attendance::query()
+        ->where('user_id', $member->id)
+        ->where('entry_type', 'time_in')
+        ->latest('id')
+        ->first();
+
+    expect($manualAttendance)->not->toBeNull();
+    expect($manualAttendance?->source)->toBe('manual_adjustment');
+    expect($manualAttendance?->recorded_at?->format('H:i'))->toBe('08:15');
+});
+
 test('attendance page hides super admin attendance data', function () {
     $admin = User::factory()->create([
         'role' => UserRole::Admin,

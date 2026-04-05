@@ -1,10 +1,12 @@
 #!/bin/sh
 set -e
 
-# Ensure the data directory and SQLite database file exist
-mkdir -p "$(dirname "${DB_DATABASE:-/var/data/database.sqlite}")"
-if [ ! -f "${DB_DATABASE:-/var/data/database.sqlite}" ]; then
-    touch "${DB_DATABASE:-/var/data/database.sqlite}"
+# Ensure the SQLite database file exists only when SQLite is in use
+if [ "${DB_CONNECTION:-sqlite}" = "sqlite" ]; then
+    mkdir -p "$(dirname "${DB_DATABASE:-/var/data/database.sqlite}")"
+    if [ ! -f "${DB_DATABASE:-/var/data/database.sqlite}" ]; then
+        touch "${DB_DATABASE:-/var/data/database.sqlite}"
+    fi
 fi
 
 # Force APP_URL to use https (in case env var was set with http://)
@@ -12,9 +14,8 @@ if [ -n "$APP_URL" ]; then
     export APP_URL=$(echo "$APP_URL" | sed 's|^http://|https://|')
 fi
 
-# Run migrations and seed
-php artisan migrate --force
-php artisan db:seed --force
+# Run deployment tasks once per Render commit
+php artisan app:prepare-render-deployment
 
 # Clear any stale cache from previous deploys
 php artisan config:clear

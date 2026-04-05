@@ -189,6 +189,20 @@ class AttendanceSeeder extends Seeder
             ['code' => 'DUS-008', 'at' => '2026-04-02 17:08:20', 'type' => 'time_out', 'src' => 'qr_scan'],
             ['code' => 'DUS-008', 'at' => '2026-04-03 07:45:20', 'type' => 'time_in', 'src' => 'qr_scan'],
             ['code' => 'DUS-008', 'at' => '2026-04-03 17:07:32', 'type' => 'time_out', 'src' => 'qr_scan'],
+            ['code' => 'DUS-001', 'at' => '2026-04-04 07:23:00', 'type' => 'time_in', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-002', 'at' => '2026-04-04 07:23:00', 'type' => 'time_in', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-003', 'at' => '2026-04-04 07:24:00', 'type' => 'time_in', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-006', 'at' => '2026-04-04 07:39:00', 'type' => 'time_in', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-005', 'at' => '2026-04-04 07:40:00', 'type' => 'time_in', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-008', 'at' => '2026-04-04 07:50:00', 'type' => 'time_in', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-004', 'at' => '2026-04-04 07:50:00', 'type' => 'time_in', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-006', 'at' => '2026-04-04 17:06:00', 'type' => 'time_out', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-003', 'at' => '2026-04-04 17:06:00', 'type' => 'time_out', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-005', 'at' => '2026-04-04 17:06:00', 'type' => 'time_out', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-004', 'at' => '2026-04-04 17:06:00', 'type' => 'time_out', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-008', 'at' => '2026-04-04 17:07:00', 'type' => 'time_out', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-002', 'at' => '2026-04-04 17:08:00', 'type' => 'time_out', 'src' => 'manual_adjustment'],
+            ['code' => 'DUS-001', 'at' => '2026-04-04 17:09:00', 'type' => 'time_out', 'src' => 'manual_adjustment'],
         ];
 
         $userMap = User::whereIn('employee_code', array_unique(array_column($records, 'code')))

@@ -37,6 +37,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     });
 
     Route::middleware('role:super_admin')->group(function () {
+        Route::post('attendances/manual-record', [AttendanceController::class, 'storeManualRecord'])->name('attendances.store-manual-record');
         Route::post('attendances/manual-time-out', [AttendanceController::class, 'storeManualTimeOut'])->name('attendances.store-manual-time-out');
         Route::delete('attendances/{attendance}', [AttendanceController::class, 'destroy'])->name('attendances.destroy');
         Route::patch('attendances/{attendance}', [AttendanceController::class, 'update'])->name('attendances.update');
