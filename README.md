@@ -393,7 +393,22 @@ php artisan app:install --seed
 
 Deployment notes are available in:
 
+- [BRANCHING.md](/c:/xampp/htdocs/duscaff-attendance/BRANCHING.md)
 - [firebase-cloud-run.md](/c:/xampp/htdocs/duscaff-attendance/docs/deployment/firebase-cloud-run.md)
 - [infinityfree.md](/c:/xampp/htdocs/duscaff-attendance/docs/deployment/infinityfree.md)
 - [railway.md](/c:/xampp/htdocs/duscaff-attendance/docs/deployment/railway.md)
 
+## Safe GitHub Release Flow
+
+For safer production deploys, use this branch flow:
+
+- `feature/*` and `fix/*` branches merge into `develop`
+- `develop` is promoted into `staging`
+- `staging` is promoted into `main`
+- `main` is the only production deployment branch
+
+Emergency fixes should use `hotfix/*` from `main`, then be merged back into `develop`.
+
+Full setup steps for branch protection and rollback are documented in:
+
+- [BRANCHING.md](/c:/xampp/htdocs/duscaff-attendance/BRANCHING.md)

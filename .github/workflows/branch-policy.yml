@@ -1,0 +1,52 @@
+name: branch-policy
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - staging
+      - main
+
+jobs:
+  enforce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce merge flow
+        env:
+          BASE_BRANCH: ${{ github.base_ref }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          echo "Checking merge flow: ${HEAD_BRANCH} -> ${BASE_BRANCH}"
+
+          case "${BASE_BRANCH}" in
+            develop)
+              if [[ "${HEAD_BRANCH}" =~ ^(feature|fix|chore|docs|refactor|test|hotfix)/.+$ ]]; then
+                exit 0
+              fi
+
+              echo "::error::Pull requests into develop must come from feature/*, fix/*, chore/*, docs/*, refactor/*, test/*, or hotfix/* branches."
+              exit 1
+              ;;
+
+            staging)
+              if [[ "${HEAD_BRANCH}" == "develop" || "${HEAD_BRANCH}" =~ ^hotfix/.+$ ]]; then
+                exit 0
+              fi
+
+              echo "::error::Pull requests into staging must come from develop or hotfix/* branches."
+              exit 1
+              ;;
+
+            main)
+              if [[ "${HEAD_BRANCH}" == "staging" || "${HEAD_BRANCH}" =~ ^hotfix/.+$ ]]; then
+                exit 0
+              fi
+
+              echo "::error::Pull requests into main must come from staging or hotfix/* branches."
+              exit 1
+              ;;
+
+            *)
+              echo "No branch policy configured for ${BASE_BRANCH}."
+              ;;
+          esac
